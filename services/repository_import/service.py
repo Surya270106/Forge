@@ -68,7 +68,12 @@ class RepositoryService:
         )
         self.session.add(job)
 
+        from .events import ImportEventPublisher, create_import_started_event
+
+        publisher = ImportEventPublisher(self.session)
+
         try:
+            await publisher.publish(create_import_started_event(organization_id, repo.id, job.id))
             await self.session.commit()
             await self.session.refresh(repo)
             await self.session.refresh(job)

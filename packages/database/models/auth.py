@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Index, String
+from sqlalchemy import Boolean, ForeignKey, Index, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.database.base import Base, IdMixin, TimestampMixin
@@ -13,7 +13,7 @@ class OrganizationModel(IdMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     billing_plan: Mapped[str] = mapped_column(String(50), nullable=False, default="FREE")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    provider_config: Mapped[dict | None] = mapped_column(nullable=True)
+    provider_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class UserModel(IdMixin, TimestampMixin, Base):

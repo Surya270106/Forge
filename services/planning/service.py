@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from packages.database.models.memory import RepositoryMemoryVersionModel
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel
-from packages.shared.errors import ConflictError, NotFoundError
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
 from packages.shared.identifiers import generate_id
 
 from .events import (
@@ -30,7 +30,7 @@ class PlanningService:
     async def create_plan(self, repository_id: UUID, intent: str, memory_version_id: UUID | None = None) -> PlanModel:
         repo = await self.session.get(RepositoryModel, repository_id)
         if not repo or repo.organization_id != self.organization_id:
-            raise NotFoundError(code="repo_not_found", message="Repository not found", category="not_found")
+            raise NotFoundError(code="repo_not_found", message="Repository not found", category=ErrorCategory.NOT_FOUND)
 
         # Validate memory version if provided, otherwise pick active
         if memory_version_id:
@@ -39,7 +39,7 @@ class PlanningService:
                 raise NotFoundError(
                     code="memory_not_found",
                     message="Memory version not found",
-                    category="not_found",
+                    category=ErrorCategory.NOT_FOUND,
                 )
         else:
             stmt = select(RepositoryMemoryVersionModel).where(
@@ -90,7 +90,7 @@ class PlanningService:
         )
         plan = (await self.session.execute(stmt)).scalars().first()
         if not plan:
-            raise NotFoundError(code="plan_not_found", message="Plan not found", category="not_found")
+            raise NotFoundError(code="plan_not_found", message="Plan not found", category=ErrorCategory.NOT_FOUND)
         return plan
 
     async def approve_plan(self, plan_id: UUID) -> PlanModel:
@@ -99,7 +99,7 @@ class PlanningService:
             raise ConflictError(
                 code="invalid_plan_state",
                 message=f"Cannot approve plan in state {plan.status.value}",
-                category="conflict",
+                category=ErrorCategory.CONFLICT,
             )
 
         plan.status = PlanStatus.APPROVED
@@ -113,7 +113,7 @@ class PlanningService:
             raise ConflictError(
                 code="invalid_plan_state",
                 message=f"Cannot reject plan in state {plan.status.value}",
-                category="conflict",
+                category=ErrorCategory.CONFLICT,
             )
 
         plan.status = PlanStatus.REJECTED

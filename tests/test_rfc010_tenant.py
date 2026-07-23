@@ -1,4 +1,5 @@
 import pytest
+from uuid import UUID
 from sqlalchemy import Column, String, event, select
 from sqlalchemy.orm import Session, declarative_base
 
@@ -34,8 +35,8 @@ def memory_session():
 
 
 def test_tenant_isolation(memory_session):
-    org_1 = generate_id()
-    org_2 = generate_id()
+    org_1 = UUID(str(generate_id()))
+    org_2 = UUID(str(generate_id()))
 
     # Bypass RLS to setup test data (simulating system context)
     clear_tenant()  # Ensure no tenant is set, but wait, our hook raises if None!
@@ -51,7 +52,7 @@ def test_tenant_isolation(memory_session):
 
     # Now test with RLS Session
     # Set context to org_1
-    set_tenant(str(org_1))
+    set_tenant(org_1)
 
     stmt = select(MockTenantModel)
     results = memory_session.execute(stmt).scalars().all()
@@ -61,7 +62,7 @@ def test_tenant_isolation(memory_session):
     assert results[0].data == "secret1"
 
     # Cross tenant access attempt
-    set_tenant(str(org_2))
+    set_tenant(org_2)
     results_2 = memory_session.execute(stmt).scalars().all()
     assert len(results_2) == 1
     assert results_2[0].data == "secret2"

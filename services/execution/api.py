@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.database.engine import get_session
 from packages.database.models.execution import ExecutionJobModel, ExecutionLogModel, ExecutionStatus
 from packages.database.models.planning import PlanModel, PlanStatus
-from packages.shared.errors import ConflictError, NotFoundError
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import OrganizationId, generate_id
 
 from .schemas import ExecutionJobResponse, ExecutionLogResponse, StartExecutionRequest
@@ -42,13 +42,13 @@ async def start_execution(
 ):
     plan = await session.get(PlanModel, plan_id)
     if not plan or plan.organization_id != organization_id:
-        raise NotFoundError(code="plan_not_found", message="Plan not found", category="not_found")
+        raise NotFoundError(code="plan_not_found", message="Plan not found", category=ErrorCategory.NOT_FOUND)  # type: ignore
 
     if plan.status != PlanStatus.APPROVED:
         raise ConflictError(
             code="plan_not_approved",
             message="Plan must be APPROVED to execute",
-            category="conflict",
+            category=ErrorCategory.CONFLICT,
         )
 
     job = ExecutionJobModel(
@@ -79,7 +79,7 @@ async def get_execution_status(
 ):
     job = await session.get(ExecutionJobModel, job_id)
     if not job or job.organization_id != organization_id:
-        raise NotFoundError(code="job_not_found", message="Job not found", category="not_found")
+        raise NotFoundError(code="job_not_found", message="Job not found", category=ErrorCategory.NOT_FOUND)  # type: ignore
     return job
 
 

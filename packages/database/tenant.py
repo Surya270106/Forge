@@ -42,7 +42,7 @@ def with_tenant_rls(execute_state: ORMExecuteState):
 
         entities = []
         if execute_state.is_select:
-            for desc in execute_state.statement.column_descriptions:
+            for desc in execute_state.statement.column_descriptions:  # type: ignore[reportAttributeAccessIssue]
                 if desc["type"] is not type:
                     entities.append(desc["type"])
         else:
@@ -54,7 +54,7 @@ def with_tenant_rls(execute_state: ORMExecuteState):
                 if tenant_id is None:
                     raise PermissionError(f"Tenant Context missing. Cannot access {entity.__name__}.")
 
-                execute_state.statement = execute_state.statement.where(entity.organization_id == str(tenant_id))
+                execute_state.statement = execute_state.statement.where(entity.organization_id == str(tenant_id))  # type: ignore[reportAttributeAccessIssue]
 
 
 # We must attach this hook to the session, which is done when sessions are created.

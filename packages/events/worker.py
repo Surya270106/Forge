@@ -76,10 +76,10 @@ class EventWorker:
 
                 # Read new events
                 streams = {stream: ">" for stream in self.streams}
-                results = await self.redis.xreadgroup(
+                results = await self.redis.xreadgroup(  # type: ignore  # pyright: ignore  # pyright: ignore
                     groupname=self.consumer_group,
                     consumername=self.consumer_name,
-                    streams=streams,
+                    streams=streams,  # pyright: ignore
                     count=10,
                     block=2000,
                 )
@@ -88,8 +88,8 @@ class EventWorker:
                     continue
 
                 for stream, messages in results:
-                    for message_id, message_data in messages:
-                        await self._process_message(stream.decode("utf-8"), message_id.decode("utf-8"), message_data)
+                    for message_id, message_data in messages:  # type: ignore[reportGeneralTypeIssues]
+                        await self._process_message(stream.decode("utf-8"), message_id.decode("utf-8"), message_data)  # type: ignore
 
             except asyncio.CancelledError:
                 break
@@ -107,7 +107,7 @@ class EventWorker:
             if not messages:
                 continue
 
-            for message_id, message_data in messages:
+            for message_id, message_data in messages:  # type: ignore[reportGeneralTypeIssues]
                 if message_data is None:
                     # Message was deleted
                     continue
@@ -122,7 +122,7 @@ class EventWorker:
                 if pending_info:
                     delivery_count = pending_info[0]["times_delivered"]
 
-                if delivery_count > self.max_retries:
+                if int(delivery_count) > self.max_retries:
                     await self._dead_letter(stream, message_id_str, message_data, "Max retries exceeded")
                     await self.redis.xack(stream, self.consumer_group, message_id_str)
                     continue

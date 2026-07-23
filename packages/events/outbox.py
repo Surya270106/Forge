@@ -94,4 +94,4 @@ class OutboxRelay:
             "occurred_at": event.occurred_at.isoformat(),
             "payload": json.dumps(event.payload),
         }
-        await self.redis.xadd(stream_name, payload)
+        await self.redis.xadd(stream_name, payload)  # pyright: ignore

@@ -24,6 +24,7 @@ class MCPClient:
         # In a real implementation we would send 'initialize' here.
 
     async def _send_request(self, method: str, params: dict) -> dict:
+        assert self.process and self.process.stdin and self.process.stdout
         self._msg_id += 1
         req = {"jsonrpc": "2.0", "id": self._msg_id, "method": method, "params": params}
         req_bytes = json.dumps(req).encode() + b"\n"

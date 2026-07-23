@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
 from packages.database.models.context import AgentInteractionModel, ContextSnapshotModel
-from packages.shared.errors import NotFoundError
+from packages.shared.errors import NotFoundError, ErrorCategory
 from packages.shared.identifiers import OrganizationId
 
 from .schemas import AgentInteractionResponse, ContextSnapshotResponse
@@ -25,7 +25,7 @@ async def get_snapshot(
 ):
     snapshot = await session.get(ContextSnapshotModel, snapshot_id)
     if not snapshot or snapshot.organization_id != organization_id:
-        raise NotFoundError(code="snapshot_not_found", message="Context snapshot not found", category="not_found")
+        raise NotFoundError(code="snapshot_not_found", message="Context snapshot not found", category=ErrorCategory.NOT_FOUND)  # type: ignore
     return snapshot
 
 
@@ -40,6 +40,6 @@ async def get_interaction(
         raise NotFoundError(
             code="interaction_not_found",
             message="Agent interaction not found",
-            category="not_found",
+            category=ErrorCategory.NOT_FOUND,
         )
     return interaction

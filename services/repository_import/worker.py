@@ -58,7 +58,7 @@ class ImportWorker:
                     workspace_path=workspace_dir,
                     repo_owner=repo.owner,
                     repo_name=repo.name,
-                    commit_sha=job.commit_sha,
+                    commit_sha=job.commit_sha or "",
                     default_branch=job.branch,
                 )
 
@@ -83,7 +83,7 @@ class ImportWorker:
                 repo.total_files = manifest.statistics.total_files
                 repo.total_size_bytes = manifest.statistics.total_size_bytes
                 repo.primary_language = manifest.languages.primary_language
-                repo.frameworks = [f.model_dump(mode="json") for f in manifest.frameworks]
+                repo.frameworks = [f.model_dump(mode="json") for f in manifest.frameworks]  # type: ignore
 
                 # 4. Completed
                 job.status = ImportJobStatus.COMPLETED

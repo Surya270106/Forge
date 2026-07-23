@@ -17,7 +17,7 @@ from packages.database.models.memory import (
 )
 from packages.database.models.repository import RepositoryModel
 from packages.shared.config import get_settings
-from packages.shared.errors import ConflictError, NotFoundError
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
 from packages.shared.identifiers import generate_id
 
 from .events import (
@@ -43,7 +43,7 @@ class MemoryService:
     async def start_indexing(self, repository_id: UUID, branch: str | None = None, force_reindex: bool = False) -> IndexingJobModel:
         repo = await self.session.get(RepositoryModel, repository_id)
         if not repo or repo.organization_id != self.organization_id:
-            raise NotFoundError(code="repo_not_found", message="Repository not found", category="not_found")
+            raise NotFoundError(code="repo_not_found", message="Repository not found", category=ErrorCategory.NOT_FOUND)
 
         target_branch = branch or repo.default_branch
 
@@ -64,7 +64,7 @@ class MemoryService:
             raise ConflictError(
                 code="already_indexing",
                 message="Repository is already being indexed",
-                category="conflict",
+                category=ErrorCategory.CONFLICT,
             )
 
         job = IndexingJobModel(
@@ -84,7 +84,7 @@ class MemoryService:
     async def get_job_status(self, job_id: UUID) -> IndexingJobModel:
         job = await self.session.get(IndexingJobModel, job_id)
         if not job or job.organization_id != self.organization_id:
-            raise NotFoundError(code="job_not_found", message="Job not found", category="not_found")
+            raise NotFoundError(code="job_not_found", message="Job not found", category=ErrorCategory.NOT_FOUND)
         return job
 
 

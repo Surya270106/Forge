@@ -22,6 +22,7 @@ dependencies = [
     "networkx>=3.0",
     "tree-sitter>=0.21.0",
     "tree-sitter-python",
+    "python-json-logger>=4.1.0",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +53,29 @@ target-version = ["py312"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
+
+include = [
+    "apps/api",
+    "packages",
+    "services",
+    "migrations",
+    "scripts",
+    "tests",
+]
+
+exclude = [
+    "skills",
+    "temp-repo",
+    "01",
+    "rfc-*",
+    "apps/frontend",
+    "**/node_modules",
+    "**/.next",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/.venv*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

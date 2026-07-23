@@ -14,7 +14,7 @@ from packages.database.models.verification import (
     VerificationStatus,
 )
 from packages.shared.config import get_settings
-from packages.shared.errors import ConflictError, NotFoundError
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
 from packages.shared.identifiers import generate_id
 from services.execution.sandbox import LocalProcessSandbox
 
@@ -38,13 +38,13 @@ class VerificationDispatcher:
     async def trigger_verification(self, execution_job_id: UUID) -> VerificationJobModel:
         exec_job = await self.session.get(ExecutionJobModel, execution_job_id)
         if not exec_job or exec_job.organization_id != self.organization_id:
-            raise NotFoundError(code="execution_not_found", message="Execution job not found", category="not_found")
+            raise NotFoundError(code="execution_not_found", message="Execution job not found", category=ErrorCategory.NOT_FOUND)
 
         if exec_job.status != ExecutionStatus.COMPLETED:
             raise ConflictError(
                 code="execution_not_ready",
                 message="Execution must be COMPLETED before verification",
-                category="conflict",
+                category=ErrorCategory.CONFLICT,
             )
 
         job = VerificationJobModel(

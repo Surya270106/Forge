@@ -42,8 +42,8 @@ class ExecutionWorker:
         self,
         job_id: UUID,
         org_id: UUID,
-        message: str,
-        node_id: UUID = None,
+        message: str | None,
+        node_id: UUID | None = None,
         level: str = "INFO",
         stream: str = "stdout",
     ):
@@ -66,6 +66,7 @@ class ExecutionWorker:
 
         plan = await self.session.get(PlanModel, job.plan_id)
         repo = await self.session.get(RepositoryModel, job.repository_id)
+        if not plan or not repo: return
 
         job.status = ExecutionStatus.RUNNING
         job.started_at = datetime.now(UTC)

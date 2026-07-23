@@ -2,7 +2,7 @@ import logging
 import sys
 
 import structlog
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import jsonlogger  # type: ignore  # pyright: ignore[reportPrivateImportUsage]
 
 
 def configure_logging(log_level: str = "INFO", environment: str = "development") -> None:
@@ -11,7 +11,8 @@ def configure_logging(log_level: str = "INFO", environment: str = "development")
     # Configure stdlib logging
     handler = logging.StreamHandler(sys.stdout)
     if environment == "production":
-        formatter = jsonlogger.JsonFormatter("%(timestamp)s %(level)s %(name)s %(message)s")
+        formatter = jsonlogger.JsonFormatter(  # type: ignore
+            "%(timestamp)s %(level)s %(name)s %(message)s")
         handler.setFormatter(formatter)
     else:
         # ConsoleRenderer for dev

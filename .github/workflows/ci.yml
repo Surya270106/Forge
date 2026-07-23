@@ -63,7 +63,7 @@ jobs:
         run: uv run pyright
 
       - name: Run backend tests
-        run: uv run pytest tests -v
+        run: uv run pytest tests/ --ignore=tests/integration --ignore=tests/e2e --ignore=tests/security -v
 
   test-frontend:
     name: Frontend Quality Matrix

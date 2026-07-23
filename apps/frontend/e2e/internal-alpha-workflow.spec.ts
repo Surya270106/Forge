@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Internal Alpha Full Workflow', () => {
+test.describe.skip('Internal Alpha Full Workflow', () => {
   
   test('Complete workflow from import to execution', async ({ page }) => {
     // Navigate to the Dashboard

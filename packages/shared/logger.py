@@ -12,7 +12,8 @@ def configure_logging(log_level: str = "INFO", environment: str = "development")
     handler = logging.StreamHandler(sys.stdout)
     if environment == "production":
         formatter = jsonlogger.JsonFormatter(  # type: ignore
-            "%(timestamp)s %(level)s %(name)s %(message)s")
+            "%(timestamp)s %(level)s %(name)s %(message)s"
+        )
         handler.setFormatter(formatter)
     else:
         # ConsoleRenderer for dev

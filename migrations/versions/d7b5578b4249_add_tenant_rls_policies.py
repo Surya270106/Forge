@@ -43,10 +43,6 @@ tenant_tables = [
 
 
 def upgrade() -> None:
-    op.execute(
-        "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'forge_admin') THEN CREATE ROLE forge_admin; END IF; END $$;"
-    )
-
     for table in tenant_tables:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;")

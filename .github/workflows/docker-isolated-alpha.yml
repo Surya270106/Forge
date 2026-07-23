@@ -165,6 +165,10 @@ jobs:
           docker ps -a > docker_ps.txt
           docker volume ls > docker_volumes.txt
           docker network ls > docker_networks.txt
+          echo "=== COMPOSE LOGS ==="
+          cat compose_logs.txt
+          echo "=== DOCKER PS ==="
+          cat docker_ps.txt
 
       - name: Verify Resource Cleanup
         if: always()

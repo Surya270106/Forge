@@ -91,29 +91,17 @@ async def get_execution_logs(
     logs = (await session.execute(stmt)).scalars().all()
     return logs
 
+
 @router.get("/{job_id}/mutations")
 async def get_execution_mutations(
     job_id: UUID,
     organization_id: OrganizationId = Depends(get_tenant_organization_id),
     session: AsyncSession = Depends(get_db_session),
 ):
-    stmt = (
-        select(MutationModel)
-        .where(
-            MutationModel.execution_job_id == job_id,
-            MutationModel.organization_id == organization_id,
-        )
+    stmt = select(MutationModel).where(
+        MutationModel.execution_job_id == job_id,
+        MutationModel.organization_id == organization_id,
     )
     mutations = (await session.execute(stmt)).scalars().all()
 
-    return {
-        "mutations": [
-            {
-                "id": str(m.id),
-                "file_path": m.file_path,
-                "mutation_type": m.mutation_type,
-                "diff_hunk": m.diff_hunk
-            }
-            for m in mutations
-        ]
-    }
+    return {"mutations": [{"id": str(m.id), "file_path": m.file_path, "mutation_type": m.mutation_type, "diff_hunk": m.diff_hunk} for m in mutations]}

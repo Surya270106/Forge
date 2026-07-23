@@ -127,7 +127,9 @@ class AgentOrchestrator:
 
         if not api_key:
             # Fallback to mock for local testing without key
-            response_text = '{"nodes": [{"id": "install", "type": "command", "target": "workspace", "parameters": {"command": "echo mock"}}], "edges": []}'
+            response_text = (
+                '{"nodes": [{"id": "install", "type": "command", "target": "workspace", "parameters": {"command": "echo mock"}}], "edges": []}'
+            )
         else:
             async with httpx.AsyncClient() as client:
                 if provider == "openai":
@@ -137,9 +139,9 @@ class AgentOrchestrator:
                         json={
                             "model": model_name,
                             "messages": [{"role": "user", "content": rendered_prompt}],
-                            "response_format": {"type": "json_object"}
+                            "response_format": {"type": "json_object"},
                         },
-                        timeout=60.0
+                        timeout=60.0,
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -150,12 +152,8 @@ class AgentOrchestrator:
                     resp = await client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                        json={
-                            "model": model_name,
-                            "max_tokens": 4000,
-                            "messages": [{"role": "user", "content": rendered_prompt}]
-                        },
-                        timeout=60.0
+                        json={"model": model_name, "max_tokens": 4000, "messages": [{"role": "user", "content": rendered_prompt}]},
+                        timeout=60.0,
                     )
                     if resp.status_code == 200:
                         data = resp.json()

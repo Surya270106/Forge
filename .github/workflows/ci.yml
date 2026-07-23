@@ -2,42 +2,99 @@ name: Forge CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-backend:
+    name: Backend Quality Matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Install uv
-      uses: astral-sh/setup-uv@v3
-    - name: Set up Python
-      run: uv python install 3.12
-    - name: Install dependencies
-      run: uv pip install -r pyproject.toml
-    - name: Run tests
-      run: uv run pytest tests/
-    - name: Run linters
-      run: |
-        uv run ruff check .
-        uv run pyright .
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.29"
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Display environment
+        run: |
+          set -euxo pipefail
+          python --version || true
+          uv --version
+          git --version
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Run linting
+        run: uv run ruff check .
+
+      - name: Run type checking
+        run: uv run pyright
+
+      - name: Run backend tests
+        run: uv run pytest tests -v
 
   test-frontend:
+    name: Frontend Quality Matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: apps/frontend
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-    - name: Install dependencies
-      working-directory: ./apps/frontend
-      run: npm ci
-    - name: Build frontend
-      working-directory: ./apps/frontend
-      run: npm run build
-    - name: Lint frontend
-      working-directory: ./apps/frontend
-      run: npm run lint
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Display environment
+        run: |
+          set -euxo pipefail
+          node --version
+          npm --version
+          git --version
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run type checking
+        run: npm run typecheck --if-present
+
+      - name: Run frontend tests
+        run: npm test --if-present
+
+      - name: Build frontend
+        run: npm run build

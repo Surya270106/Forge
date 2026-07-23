@@ -1,9 +1,12 @@
-import pytest
-import shutil
 import asyncio
+import shutil
+
+import pytest
+
 from services.execution.sandbox import DockerSandbox
 
 pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="Docker daemon is not available")
+
 
 @pytest.mark.asyncio
 async def test_docker_sandbox_python_execution(tmp_path):

@@ -1,9 +1,12 @@
-import pytest
-import shutil
 import asyncio
+import shutil
+
+import pytest
+
 from services.execution.sandbox import DockerSandbox
 
 pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="Docker daemon is not available")
+
 
 @pytest.mark.asyncio
 async def test_docker_sandbox_network_disabled(tmp_path):
@@ -14,6 +17,7 @@ async def test_docker_sandbox_network_disabled(tmp_path):
         assert "Network is unreachable" in res.stderr or "bad address" in res.stderr or "ping" in res.stderr
     finally:
         await sandbox.cleanup()
+
 
 @pytest.mark.asyncio
 async def test_docker_sandbox_non_root(tmp_path):

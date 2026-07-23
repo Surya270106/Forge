@@ -76,6 +76,7 @@ async def approve_plan(
 
 from packages.database.models.planning import PlanModel
 
+
 @router.get("/api/v1/plans")
 async def list_plans(
     organization_id: OrganizationId = Depends(get_tenant_organization_id),
@@ -84,7 +85,7 @@ async def list_plans(
     stmt = select(PlanModel).where(PlanModel.organization_id == organization_id).order_by(PlanModel.created_at.desc())
     result = await session.execute(stmt)
     plans = result.scalars().all()
-    
+
     return {
         "plans": [
             {

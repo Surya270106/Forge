@@ -1,5 +1,7 @@
-import jwt
 from datetime import datetime, timedelta, timezone
+
+import jwt
+
 from packages.shared.config import get_settings
 
 ALGORITHM = "HS256"

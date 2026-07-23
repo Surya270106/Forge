@@ -110,10 +110,12 @@ class AgentOrchestrator:
         await self.publisher.publish(create_context_assembled_event(self.organization_id, repository_id, snapshot.id, plan_id))
 
         # 5. Invoke LLM (Real Implementation)
-        from packages.database.models.auth import OrganizationModel
-        import httpx
         import json
-        
+
+        import httpx
+
+        from packages.database.models.auth import OrganizationModel
+
         org = await self.session.get(OrganizationModel, self.organization_id)
         provider_config = org.provider_config or {} if org else {}
         api_key = provider_config.get("api_key")

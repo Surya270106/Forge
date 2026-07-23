@@ -5,13 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
-from packages.database.models.execution import ExecutionJobModel, ExecutionLogModel, ExecutionStatus
+from packages.database.models.execution import ExecutionJobModel, ExecutionLogModel, ExecutionStatus, MutationModel
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import OrganizationId, generate_id
 
 from .schemas import ExecutionJobResponse, ExecutionLogResponse, StartExecutionRequest
-from packages.database.models.execution import MutationModel
 
 router = APIRouter(prefix="/api/v1/executions", tags=["execution"])
 
@@ -106,7 +105,7 @@ async def get_execution_mutations(
         )
     )
     mutations = (await session.execute(stmt)).scalars().all()
-    
+
     return {
         "mutations": [
             {

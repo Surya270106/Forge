@@ -1,14 +1,14 @@
 from uuid import UUID
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
-from packages.shared.errors import ConflictError
 from packages.database.models.repository import RepositoryModel
+from packages.shared.errors import ConflictError
 
 from .schemas import ImportRepositoryRequest, ImportRepositoryResponse
 from .service import RepositoryService
@@ -16,7 +16,8 @@ from .service import RepositoryService
 router = APIRouter(prefix="/api/v1/repositories", tags=["Repositories"])
 logger = structlog.get_logger(__name__)
 
-from services.auth.dependencies import get_tenant_context, get_current_user
+from services.auth.dependencies import get_current_user, get_tenant_context
+
 
 async def get_db_session(org_id: UUID = Depends(get_tenant_context)):
     async for session in get_session():
@@ -53,7 +54,7 @@ async def list_imported_repositories(
     stmt = select(RepositoryModel).where(RepositoryModel.organization_id == organization_id)
     result = await session.execute(stmt)
     repos = result.scalars().all()
-    
+
     return {
         "repositories": [
             {
@@ -74,7 +75,7 @@ async def list_github_repositories(user: dict = Depends(get_current_user)):
     token = user.get("github_token")
     if not token:
         raise HTTPException(status_code=400, detail="GitHub token not found. Please log in with GitHub again.")
-        
+
     async with httpx.AsyncClient() as client:
         res = await client.get(
             "https://api.github.com/user/repos?per_page=100&sort=updated",
@@ -82,7 +83,7 @@ async def list_github_repositories(user: dict = Depends(get_current_user)):
         )
         if res.status_code != 200:
             raise HTTPException(status_code=500, detail="Failed to fetch repositories from GitHub")
-            
+
         repos = res.json()
         return {
             "repositories": [

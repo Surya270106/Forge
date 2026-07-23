@@ -348,7 +348,7 @@ wheels = [
 [[package]]
 name = "forge-ai"
 version = "0.1.0a1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },

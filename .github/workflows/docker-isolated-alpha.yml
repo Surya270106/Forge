@@ -63,6 +63,14 @@ jobs:
           cd apps/frontend
           npm ci
 
+
+      - name: Verify Python Package Imports
+        run: |
+          set -euxo pipefail
+          uv run python -c "import services"
+          uv run python -c "from services.execution.sandbox import DockerSandbox"
+          uv run python -c "from apps.api.main import app; print(app.title)"
+
       - name: Build Sandbox Images
         run: |
           set -euxo pipefail

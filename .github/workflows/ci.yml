@@ -45,6 +45,14 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --frozen --all-extras
 
+
+      - name: Verify Python Package Imports
+        run: |
+          set -euxo pipefail
+          uv run python -c "import services"
+          uv run python -c "from services.execution.sandbox import DockerSandbox"
+          uv run python -c "from apps.api.main import app; print(app.title)"
+
       - name: Check formatting
         run: uv run ruff format --check .
 

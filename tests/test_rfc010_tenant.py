@@ -1,5 +1,6 @@
-import pytest
 from uuid import UUID
+
+import pytest
 from sqlalchemy import Column, String, event, select
 from sqlalchemy.orm import Session, declarative_base
 

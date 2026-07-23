@@ -80,3 +80,22 @@ exclude = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "apps.api*",
+    "packages*",
+    "services*",
+]
+exclude = [
+    "tests*",
+    "skills*",
+    "migrations*",
+    "temp-repo*",
+]
+namespaces = true

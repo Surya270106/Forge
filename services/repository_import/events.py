@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from packages.shared.events import EventEnvelope, EventPublisher
-from packages.database.models.outbox_event import OutboxEventModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.database.models.outbox_event import OutboxEventModel
+from packages.shared.events import EventEnvelope, EventPublisher
 
 
 class ImportEventPublisher(EventPublisher):

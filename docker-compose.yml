@@ -30,7 +30,7 @@ services:
   migration:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/Dockerfile.api
     command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
@@ -41,7 +41,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/Dockerfile.api
     ports:
       - "8000:8000"
     environment:
@@ -59,7 +59,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: docker/Dockerfile.worker
     environment:
       DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
       REDIS_URL: redis://redis:6379/0
@@ -75,7 +75,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: docker/Dockerfile.frontend
     ports:
       - "3000:3000"
     environment:

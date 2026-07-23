@@ -14,7 +14,7 @@
 
 **Forge AI** is an enterprise-grade AI-assisted software engineering platform that securely manages autonomous coding workflows. Designed for product-minded teams, Forge transforms raw intents into fully-executed, verified code changes. It integrates directly with GitHub, analyzes massive codebases securely, and safely applies modifications through an isolated Docker Sandbox.
 
-## 🚀 Features
+## Features
 
 - **Real GitHub Integration**: Securely connect via OAuth and import your repositories (Public or Private) directly.
 - **AI Planning Engine**: Leverages an AI Context Engine to dynamically construct a Directed Acyclic Graph (DAG) of execution tasks based on natural language intent.
@@ -25,7 +25,7 @@
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 Forge AI is designed around an event-driven, decoupled architecture separating the state management (API) from resource-heavy execution (Workers). 
 
@@ -77,7 +77,7 @@ graph TD
     Import -- "OAuth / Fetch" --> GitHub
 ```
 
-### 🧠 The AI Planning Workflow
+### The AI Planning Workflow
 
 The Planning Engine and Context Engine work in tandem to construct deterministic DAGs.
 
@@ -100,7 +100,7 @@ sequenceDiagram
     API-->>User: Present Task Graph for Approval
 ```
 
-### 🛡️ Docker-Isolated Execution
+### Docker-Isolated Execution
 
 Once approved, tasks run within an ephemeral, secure sandbox.
 
@@ -117,7 +117,7 @@ flowchart LR
 
 ---
 
-## ⚡ Getting Started (Local Development)
+## Getting Started (Local Development)
 
 ### Prerequisites
 - Python 3.12+ (Use `uv` for lightning-fast dependency management)
@@ -179,13 +179,13 @@ Visit `http://localhost:3000` to log in via GitHub and start building!
 
 ---
 
-## 🔒 Security & Limitations
+## Security & Limitations
 
 - **Sandboxing**: `DockerSandbox` is used for isolation. The container is stripped of capabilities and runs in a separate network bridge.
 - **Provider Keys**: OpenAI / Anthropic API keys are strictly maintained in the encrypted PostgreSQL `OrganizationModel.provider_config` column and never exposed to the frontend browser context.
 - **Local Workspaces**: Local workspace directories are isolated by `organization_id` and `repository_id` to prevent cross-tenant path traversal.
 
-## 🗺️ Roadmap
+## Roadmap
 - [x] Full Internal Alpha
 - [x] Docker-Isolated Alpha
 - [x] Real GitHub Connection

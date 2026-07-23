@@ -1,7 +1,7 @@
+import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import inspect
 
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel

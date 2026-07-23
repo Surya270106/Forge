@@ -2,10 +2,11 @@ import json
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from packages.database.models.planning import TaskEdgeModel, TaskNodeModel
 from packages.shared.identifiers import generate_id
 from services.context_engine.service import AgentOrchestrator
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class AIPlanner:
@@ -20,7 +21,7 @@ class AIPlanner:
 
     async def build_plan(self, repository_id: UUID, intent: str) -> tuple[list[TaskNodeModel], list[TaskEdgeModel]]:
         orchestrator = AgentOrchestrator(self.session, self.organization_id)
-        
+
         # Override the template in the DB or pass the prompt directly
         # For simplicity, we just pass the prompt directly in the query and use a default template name
         prompt = f"""
@@ -44,7 +45,7 @@ Example JSON:
 """
         # Call the orchestrator
         interaction = await orchestrator.invoke_agent(repository_id, prompt, "planning_template", self.plan_id)
-        
+
         try:
             plan_data = json.loads(interaction.response_text)
         except json.JSONDecodeError:

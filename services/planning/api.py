@@ -74,6 +74,7 @@ async def approve_plan(
     plan_dict["edges"] = edges
     return plan_dict
 
+
 from packages.database.models.planning import PlanModel
 
 
@@ -93,7 +94,7 @@ async def list_plans(
                 "intent": p.intent,
                 "status": p.status.value,
                 "repository_id": str(p.repository_id),
-                "created_at": p.created_at.isoformat() if p.created_at else None
+                "created_at": p.created_at.isoformat() if p.created_at else None,
             }
             for p in plans
         ]

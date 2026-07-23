@@ -52,7 +52,7 @@ Example JSON:
             # Fallback if AI didn't return valid JSON
             plan_data = {
                 "nodes": [{"id": "fallback", "type": "command", "target": "workspace", "parameters": {"command": "echo 'Invalid JSON from AI'"}}],
-                "edges": []
+                "edges": [],
             }
 
         nodes = []
@@ -62,26 +62,30 @@ Example JSON:
         for n_data in plan_data.get("nodes", []):
             node_id = generate_id()
             node_id_map[n_data.get("id")] = node_id
-            nodes.append(TaskNodeModel(
-                id=node_id,
-                organization_id=self.organization_id,
-                plan_id=self.plan_id,
-                action_type=n_data.get("type", "unknown"),
-                target=n_data.get("target", "workspace"),
-                parameters=n_data.get("parameters", {}),
-            ))
+            nodes.append(
+                TaskNodeModel(
+                    id=node_id,
+                    organization_id=self.organization_id,
+                    plan_id=self.plan_id,
+                    action_type=n_data.get("type", "unknown"),
+                    target=n_data.get("target", "workspace"),
+                    parameters=n_data.get("parameters", {}),
+                )
+            )
 
         for e_data in plan_data.get("edges", []):
             from_id = node_id_map.get(e_data.get("from"))
             to_id = node_id_map.get(e_data.get("to"))
             if from_id and to_id:
-                edges.append(TaskEdgeModel(
-                    id=generate_id(),
-                    organization_id=self.organization_id,
-                    plan_id=self.plan_id,
-                    from_node_id=from_id,
-                    to_node_id=to_id,
-                    condition=e_data.get("condition", "on_success"),
-                ))
+                edges.append(
+                    TaskEdgeModel(
+                        id=generate_id(),
+                        organization_id=self.organization_id,
+                        plan_id=self.plan_id,
+                        from_node_id=from_id,
+                        to_node_id=to_id,
+                        condition=e_data.get("condition", "on_success"),
+                    )
+                )
 
         return nodes, edges

@@ -29,18 +29,14 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
 
-    return {
-        "id": str(user.id),
-        "email": user.email,
-        "name": user.name,
-        "github_token": user.github_token
-    }
+    return {"id": str(user.id), "email": user.email, "name": user.name, "github_token": user.github_token}
+
 
 async def get_tenant_context(
     request: Request,
     x_organization_id: str | None = Header(None, alias="X-Organization-Id"),
     user: dict = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
 ) -> OrganizationId:
     if not x_organization_id:
         raise HTTPException(status_code=400, detail="Missing X-Organization-Id header")
@@ -51,10 +47,7 @@ async def get_tenant_context(
         raise HTTPException(status_code=400, detail="Invalid X-Organization-Id format")
 
     # Verify user has access to this organization
-    stmt = select(RoleBindingModel).where(
-        RoleBindingModel.organization_id == org_uuid,
-        RoleBindingModel.user_id == user["id"]
-    )
+    stmt = select(RoleBindingModel).where(RoleBindingModel.organization_id == org_uuid, RoleBindingModel.user_id == user["id"])
     result = await session.execute(stmt)
     binding = result.scalar_one_or_none()
 
@@ -62,6 +55,7 @@ async def get_tenant_context(
         raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this organization")
 
     from packages.database.tenant import set_tenant
+
     org_id = OrganizationId(org_uuid)
     set_tenant(org_id)
 

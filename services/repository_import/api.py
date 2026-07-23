@@ -23,6 +23,7 @@ async def get_db_session(org_id: UUID = Depends(get_tenant_context)):
     async for session in get_session():
         yield session
 
+
 @router.post("/import", response_model=ImportRepositoryResponse, status_code=status.HTTP_202_ACCEPTED)
 async def import_repository(
     request: ImportRepositoryRequest,
@@ -46,11 +47,9 @@ async def import_repository(
         message="Repository import scheduled successfully.",
     )
 
+
 @router.get("/imported")
-async def list_imported_repositories(
-    organization_id: UUID = Depends(get_tenant_context),
-    session: AsyncSession = Depends(get_db_session)
-):
+async def list_imported_repositories(organization_id: UUID = Depends(get_tenant_context), session: AsyncSession = Depends(get_db_session)):
     stmt = select(RepositoryModel).where(RepositoryModel.organization_id == organization_id)
     result = await session.execute(stmt)
     repos = result.scalars().all()
@@ -64,11 +63,12 @@ async def list_imported_repositories(
                 "clone_url": repo.clone_url,
                 "status": repo.status.value,
                 "default_branch": repo.default_branch,
-                "created_at": repo.created_at.isoformat() if repo.created_at else None
+                "created_at": repo.created_at.isoformat() if repo.created_at else None,
             }
             for repo in repos
         ]
     }
+
 
 @router.get("/github-repos")
 async def list_github_repositories(user: dict = Depends(get_current_user)):
@@ -79,7 +79,7 @@ async def list_github_repositories(user: dict = Depends(get_current_user)):
     async with httpx.AsyncClient() as client:
         res = await client.get(
             "https://api.github.com/user/repos?per_page=100&sort=updated",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
         )
         if res.status_code != 200:
             raise HTTPException(status_code=500, detail="Failed to fetch repositories from GitHub")
@@ -93,7 +93,7 @@ async def list_github_repositories(user: dict = Depends(get_current_user)):
                     "clone_url": repo["clone_url"],
                     "is_private": repo["private"],
                     "description": repo["description"],
-                    "default_branch": repo["default_branch"]
+                    "default_branch": repo["default_branch"],
                 }
                 for repo in repos
             ]

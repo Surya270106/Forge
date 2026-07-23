@@ -73,7 +73,9 @@ async def test_worker_events_end_to_end(event_infrastructure):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers) as client:
         # Step 1: Trigger repository import (RFC-001)
-        req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": "dummy-repo"}
+        import uuid
+        unique_name = f"dummy-repo-{uuid.uuid4()}"
+        req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": unique_name}
         repo_resp = await client.post("/api/v1/repositories/import", json=req_data)
         assert repo_resp.status_code == 202
         repo_id = repo_resp.json()["repository_id"]

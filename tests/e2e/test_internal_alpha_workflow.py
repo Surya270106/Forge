@@ -15,7 +15,9 @@ async def test_e2e_alpha_workflow():
         assert resp.json()["status"] == "ready"
 
         # Step 2: Trigger repository import (RFC-001)
-        req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": "dummy-repo"}
+        import uuid
+        unique_name = f"dummy-repo-{uuid.uuid4()}"
+        req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": unique_name}
         resp = await client.post("/api/v1/repositories/import", json=req_data)
         assert resp.status_code == 202, f"Import failed: {resp.text}"
         import_id = resp.json()["import_job_id"]

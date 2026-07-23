@@ -1,7 +1,9 @@
-import pytest
 import shutil
 
+import pytest
+
 pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="Docker daemon is not available")
+
 
 @pytest.mark.asyncio
 async def test_e2e_docker_workflow():

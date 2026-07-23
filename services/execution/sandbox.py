@@ -96,10 +96,11 @@ class LocalProcessSandbox(SandboxRuntime):
 
 
 import json
-import uuid
 import time
+import uuid
 from datetime import datetime
 from typing import Any
+
 
 class DockerSandbox(SandboxRuntime):
     """
@@ -118,22 +119,31 @@ class DockerSandbox(SandboxRuntime):
     async def _ensure_container(self) -> None:
         if self.container_id:
             return
-        
+
         cmd = [
-            "docker", "run", "-d",
-            "--name", f"forge-sandbox-{self.sandbox_id}",
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            f"forge-sandbox-{self.sandbox_id}",
             "--rm",
             "--read-only",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
-            "--network", "none" if self.network_disabled else "bridge",
-            "-v", f"{self.workspace_root}:/workspace",
-            "--tmpfs", "/tmp",
-            "-w", "/workspace",
+            "--network",
+            "none" if self.network_disabled else "bridge",
+            "-v",
+            f"{self.workspace_root}:/workspace",
+            "--tmpfs",
+            "/tmp",
+            "-w",
+            "/workspace",
             self.image,
-            "tail", "-f", "/dev/null"
+            "tail",
+            "-f",
+            "/dev/null",
         ]
-        
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -142,21 +152,21 @@ class DockerSandbox(SandboxRuntime):
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(f"Failed to start DockerSandbox container: {stderr.decode()}")
-            
+
         self.container_id = stdout.decode().strip()
         logger.info("docker_container_started", container_id=self.container_id)
 
     async def run_command(self, command: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> SandboxResult:
         await self._ensure_container()
-        
+
         exec_cmd = ["docker", "exec"]
         if env:
             for k, v in env.items():
                 exec_cmd.extend(["-e", f"{k}={v}"])
         if cwd:
             exec_cmd.extend(["-w", cwd])
-            
-        exec_cmd.append(self.container_id) # type: ignore
+
+        exec_cmd.append(self.container_id)  # type: ignore
         exec_cmd.extend(command)
 
         proc = await asyncio.create_subprocess_exec(
@@ -176,15 +186,15 @@ class DockerSandbox(SandboxRuntime):
                 stdout=stdout.decode(),
                 stderr=f"Command timed out after {self.timeout_seconds}s",
             )
-            
+
         return SandboxResult(exit_code=exit_code, stdout=stdout.decode(), stderr=stderr.decode())
 
     async def write_file(self, path: str, content: bytes) -> None:
-        # In a real DockerSandbox, we write to the mounted volume on the host, 
+        # In a real DockerSandbox, we write to the mounted volume on the host,
         # so it's the same as LocalProcessSandbox.
         safe_path = os.path.abspath(os.path.join(self.workspace_root, path))
         if not safe_path.startswith(os.path.abspath(self.workspace_root)):
-             raise PermissionError(f"Path traversal attempted: {path}")
+            raise PermissionError(f"Path traversal attempted: {path}")
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, "wb") as f:
             f.write(content)
@@ -192,7 +202,7 @@ class DockerSandbox(SandboxRuntime):
     async def read_file(self, path: str) -> bytes:
         safe_path = os.path.abspath(os.path.join(self.workspace_root, path))
         if not safe_path.startswith(os.path.abspath(self.workspace_root)):
-             raise PermissionError(f"Path traversal attempted: {path}")
+            raise PermissionError(f"Path traversal attempted: {path}")
         if not os.path.exists(safe_path):
             raise FileNotFoundError(f"File not found: {path}")
         with open(safe_path, "rb") as f:
@@ -201,7 +211,10 @@ class DockerSandbox(SandboxRuntime):
     async def cleanup(self) -> None:
         if self.container_id:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "rm", "-f", self.container_id,
+                "docker",
+                "rm",
+                "-f",
+                self.container_id,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

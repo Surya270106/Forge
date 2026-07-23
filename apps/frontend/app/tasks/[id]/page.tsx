@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from "react";
-import { env } from "../../../../config/env";
+import { env } from "../../../config/env";
 import { CheckCircle, Play, Loader2, GitMerge, FileCode, Check, X, RefreshCcw, Activity } from "lucide-react";
 
 export default function TaskPage({ params }: { params: { id: string } }) {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from "react";
-import { env } from "../../../config/env";
+import { env } from "../../config/env";
 import { Activity, Clock, Search, ArrowRight, Loader2, GitCommit } from "lucide-react";
 import Link from "next/link";
 

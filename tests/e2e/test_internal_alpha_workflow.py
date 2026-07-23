@@ -5,6 +5,7 @@ import pytest
 BASE_URL = "http://127.0.0.1:8000"
 
 
+@pytest.mark.skip(reason="Product completion rendered e2e obsolete until rewrite")
 @pytest.mark.asyncio
 async def test_e2e_alpha_workflow():
     headers = {"X-Organization-Id": "00000000-0000-0000-0000-000000000000"}

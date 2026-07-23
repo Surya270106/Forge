@@ -1,0 +1,8 @@
+FROM node:20-alpine
+
+RUN addgroup -g 1000 sandbox_group && adduser -u 1000 -G sandbox_group -D sandbox_user
+USER sandbox_user
+WORKDIR /workspace
+
+# Node sandbox image intended for running untrusted code without privileges
+CMD ["node"]

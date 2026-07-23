@@ -67,12 +67,13 @@ class ParserRegistry:
 
 
 try:
-    import tree_sitter_javascript
+    import tree_sitter_javascript  # type: ignore
     import tree_sitter_python
-    import tree_sitter_typescript
+    import tree_sitter_typescript  # type: ignore
     from tree_sitter import Language, Parser, Query, QueryCursor
 
-    class PythonAdapter(LanguageAdapter):
+    # pyright: ignore
+    class PythonAdapter(LanguageAdapter):  # type: ignore
         def __init__(self):
             self.lang = Language(tree_sitter_python.language())
             self.parser = Parser(self.lang)
@@ -175,7 +176,8 @@ except ImportError as e:
     logger.warning("tree_sitter_not_installed", error=str(e))
 
     # Fallback mock registry if environment has no C-extensions
-    class PythonAdapter(LanguageAdapter):
+    # pyright: ignore
+    class PythonAdapter(LanguageAdapter):  # type: ignore
         def supports(self, file_path: str) -> bool:
             return file_path.endswith(".py")
 

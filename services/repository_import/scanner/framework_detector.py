@@ -109,7 +109,7 @@ class FrameworkDetector:
             if pkg in content:
                 self.frameworks.append(FrameworkInfo(name=name, version=None, confidence=0.9, detection_source="Cargo.toml"))
 
-    def detect_frameworks(self, workspace_path: str, files: list[FileEntry], manifests: list[str] = None) -> list[FrameworkInfo]:
+    def detect_frameworks(self, workspace_path: str, files: list[FileEntry], manifests: list[str] | None = None) -> list[FrameworkInfo]:
         """
         Detect frameworks used in the repository.
 

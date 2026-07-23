@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
 from packages.database.models.verification import VerificationJobModel, VerificationResultModel
-from packages.shared.errors import NotFoundError
+from packages.shared.errors import NotFoundError, ErrorCategory
 from packages.shared.identifiers import OrganizationId
 
 from .schemas import TriggerVerificationRequest, VerificationJobResponse
@@ -44,7 +44,7 @@ async def get_verification(
         raise NotFoundError(
             code="verification_not_found",
             message="Verification job not found",
-            category="not_found",
+            category=ErrorCategory.NOT_FOUND,
         )
 
     stmt = select(VerificationResultModel).where(VerificationResultModel.verification_job_id == job_id)

@@ -28,7 +28,7 @@ class ContextEventPublisher(EventPublisher):
         await self.session.flush()
 
 
-def create_context_assembled_event(org_id: UUID, repo_id: UUID, snapshot_id: UUID, plan_id: UUID = None) -> EventEnvelope:
+def create_context_assembled_event(org_id: UUID, repo_id: UUID, snapshot_id: UUID, plan_id: UUID | None = None) -> EventEnvelope:
     return EventEnvelope(
         event_type="context.assembled",
         aggregate_type="context_snapshot",

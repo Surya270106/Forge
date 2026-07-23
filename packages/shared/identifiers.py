@@ -21,8 +21,9 @@ JobId = NewType("JobId", UUID)
 MemoryVersionId = NewType("MemoryVersionId", UUID)
 
 
+from typing import cast
 def generate_id() -> UUID:
-    return uuid7()
+    return cast(UUID, uuid7())
 
 
 def generate_correlation_id() -> CorrelationId:

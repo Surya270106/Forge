@@ -16,10 +16,10 @@ class ManifestBuilder:
     def __init__(
         self,
         workspace_path: str,
-        repo_owner: str = None,
-        repo_name: str = None,
-        commit_sha: str = None,
-        default_branch: str = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        commit_sha: str | None = None,
+        default_branch: str | None = None,
     ):
         """
         Initialize the manifest builder.

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.models.import_job import ImportJobModel, ImportJobStatus
 from packages.database.models.repository import RepositoryModel, RepositoryStatus
-from packages.shared.errors import ConflictError
+from packages.shared.errors import ConflictError, ErrorCategory
 from packages.shared.identifiers import generate_id
 
 from .schemas import ImportRepositoryRequest
@@ -52,7 +52,7 @@ class RepositoryService:
                 raise ConflictError(
                     code="REPO_IMPORT_IN_PROGRESS",
                     message="Repository import is already in progress.",
-                    category="conflict",
+                    category=ErrorCategory.CONFLICT,
                 )
 
             repo.status = RepositoryStatus.PENDING
@@ -78,7 +78,7 @@ class RepositoryService:
             raise ConflictError(
                 code="REPO_REGISTRATION_CONFLICT",
                 message="A conflict occurred while registering the repository.",
-                category="conflict",
+                category=ErrorCategory.CONFLICT,
             )
 
         return repo, job

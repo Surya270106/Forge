@@ -1,0 +1,159 @@
+name: Docker-Isolated Alpha Verification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "services/execution/**"
+      - "Dockerfile*"
+      - "docker-compose.yml"
+      - "tests/integration/test_docker_sandbox.py"
+      - "tests/security/test_docker_sandbox_security.py"
+      - "tests/e2e/test_docker_execution_workflow.py"
+      - ".github/workflows/docker-isolated-alpha.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Docker Environment & Execution Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Setup Python & uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.29"
+
+      - name: Install System Dependencies & Host Info
+        run: |
+          uname -a
+          cat /etc/os-release
+          python --version
+          uv --version
+          node --version
+          npm --version
+          git --version
+
+      - name: Verify Docker Daemon
+        run: |
+          docker version
+          docker info
+          docker compose version
+          docker run --rm hello-world
+
+      - name: Clean Dependency Installation
+        run: |
+          uv sync --frozen --all-extras
+          cd apps/frontend
+          npm ci
+
+      - name: Build Sandbox Images
+        run: |
+          docker build -f Dockerfile.sandbox-python -t forge-sandbox-python:0.1.0-alpha.1 .
+          docker build -f Dockerfile.sandbox-node -t forge-sandbox-node:0.1.0-alpha.1 .
+
+      - name: Inspect Sandbox Images
+        run: |
+          docker image inspect forge-sandbox-python:0.1.0-alpha.1 > sandbox_python_inspect.json
+          docker image inspect forge-sandbox-node:0.1.0-alpha.1 > sandbox_node_inspect.json
+          docker history --no-trunc forge-sandbox-python:0.1.0-alpha.1 > sandbox_python_history.txt
+          docker history --no-trunc forge-sandbox-node:0.1.0-alpha.1 > sandbox_node_history.txt
+
+      - name: Build Application Images
+        run: |
+          docker build -f Dockerfile.api -t forge-api:0.1.0-alpha.1 .
+          docker build -f Dockerfile.worker -t forge-worker:0.1.0-alpha.1 .
+          docker build -f Dockerfile.frontend -t forge-frontend:0.1.0-alpha.1 .
+
+      - name: Verify Compose Configuration
+        run: docker compose config > compose_config.yml
+
+      - name: Start Containerized Stack
+        run: |
+          docker compose build
+          docker compose up -d
+          # Simple sleep to allow services to initialize, although health checks are better
+          sleep 10
+          docker compose ps > compose_ps.txt
+
+      - name: Run Docker Integration Tests
+        run: uv run pytest tests/integration/test_docker_sandbox.py -v
+
+      - name: Run Docker Security Tests
+        run: uv run pytest tests/security/test_docker_sandbox_security.py -v
+
+      - name: Run Docker Execution E2E
+        run: uv run pytest tests/e2e/test_docker_execution_workflow.py -v
+
+      - name: Run Browser E2E against Compose
+        run: |
+          cd apps/frontend
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Run Full Regression Matrix (Backend)
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run pyright
+          uv run pytest tests/unit -v
+          uv run pytest tests/integration -v
+          uv run pytest tests/security -v
+          uv run pytest tests/e2e -v
+          uv run pytest tests -v
+
+      - name: Run Full Regression Matrix (Frontend)
+        run: |
+          cd apps/frontend
+          npm run lint
+          npm run typecheck --if-present
+          npm test --if-present
+          npm run build
+
+      - name: Capture Logs & Resource State on Failure
+        if: failure()
+        run: |
+          docker compose logs > compose_logs.txt
+          docker ps -a > docker_ps.txt
+          docker volume ls > docker_volumes.txt
+          docker network ls > docker_networks.txt
+
+      - name: Verify Resource Cleanup
+        if: always()
+        run: |
+          docker ps -a
+          docker volume ls
+          docker network ls
+          docker compose down -v --remove-orphans
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-verification-evidence
+          path: |
+            sandbox_*_inspect.json
+            sandbox_*_history.txt
+            compose_config.yml
+            compose_ps.txt
+            compose_logs.txt
+            docker_ps.txt
+            docker_volumes.txt
+            docker_networks.txt
+            apps/frontend/playwright-report/

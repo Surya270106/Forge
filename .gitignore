@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.env
+.venv/
+temporary_logs/
+tmp/
+*.sqlite3

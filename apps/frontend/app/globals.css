@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0.985 0.005 250;
+    --surface: 1 0 0;
+    --foreground: 0.205 0.015 255;
+    --muted-bg: 0.95 0.01 255;
+    --muted-foreground: 0.510 0.020 255;
+    --border: 0.885 0.010 250;
+    --accent: 0.610 0.190 265;
+    --success: 0.690 0.145 150;
+    --warning: 0.790 0.145 80;
+    --danger: 0.630 0.220 25;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 0.18 0.02 250;
+      --surface: 0.22 0.03 255;
+      --foreground: 0.95 0.01 255;
+      --muted-bg: 0.28 0.03 255;
+      --muted-foreground: 0.7 0.02 255;
+      --border: 0.35 0.03 250;
+    }
+  }
+
+  body {
+    background-color: oklch(var(--background));
+    color: oklch(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

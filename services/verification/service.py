@@ -14,7 +14,7 @@ from packages.database.models.verification import (
     VerificationStatus,
 )
 from packages.shared.config import get_settings
-from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
 from services.execution.sandbox import LocalProcessSandbox
 

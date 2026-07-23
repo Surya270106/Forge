@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from packages.database.models.memory import RepositoryMemoryVersionModel
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel
-from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
 
 from .events import (

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
 from packages.database.models.verification import VerificationJobModel, VerificationResultModel
-from packages.shared.errors import NotFoundError, ErrorCategory
+from packages.shared.errors import ErrorCategory, NotFoundError
 from packages.shared.identifiers import OrganizationId
 
 from .schemas import TriggerVerificationRequest, VerificationJobResponse

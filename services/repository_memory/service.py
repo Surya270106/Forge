@@ -17,7 +17,7 @@ from packages.database.models.memory import (
 )
 from packages.database.models.repository import RepositoryModel
 from packages.shared.config import get_settings
-from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError, ErrorCategory
+from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
 
 from .events import (

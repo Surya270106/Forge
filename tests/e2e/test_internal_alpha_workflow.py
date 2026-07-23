@@ -16,6 +16,7 @@ async def test_e2e_alpha_workflow():
 
         # Step 2: Trigger repository import (RFC-001)
         import uuid
+
         unique_name = f"dummy-repo-{uuid.uuid4()}"
         req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": unique_name}
         resp = await client.post("/api/v1/repositories/import", json=req_data)

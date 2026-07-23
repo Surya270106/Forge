@@ -1,30 +1,50 @@
-FROM node:20-alpine AS builder
+FROM node:24-alpine3.21 AS dependencies
 
 WORKDIR /app
 
-COPY apps/frontend/package.json apps/frontend/package-lock.json* ./apps/frontend/
-RUN cd apps/frontend && npm ci
+ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY apps/frontend ./apps/frontend
-RUN cd apps/frontend && npm run build
+COPY apps/frontend/package.json apps/frontend/package-lock.json ./
 
-FROM node:20-alpine AS runner
+RUN npm ci
+
+
+FROM node:24-alpine3.21 AS builder
+
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY apps/frontend ./
+
+# Guarantee the optional public directory exists so the runtime copy is
+# deterministic even when the application has no public assets yet.
+RUN mkdir -p public
+
+RUN npm run build
+
+# Fail during the builder stage with a direct diagnostic if standalone
+# output was not generated.
+RUN test -f .next/standalone/server.js
+
+
+FROM node:24-alpine3.21 AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+# Use the non-root user already supplied by the official Node image.
+USER node
 
-COPY --from=builder /app/apps/frontend/public ./apps/frontend/public
-COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/standalone ./apps/frontend/
-COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/static ./apps/frontend/.next/static
-
-USER nextjs
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
 EXPOSE 3000
 
-ENV PORT=3000
-
-CMD ["node", "apps/frontend/server.js"]
+CMD ["node", "server.js"]

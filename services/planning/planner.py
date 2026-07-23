@@ -1,89 +1,86 @@
-import re
+import json
 from typing import Any
 from uuid import UUID
 
 from packages.database.models.planning import TaskEdgeModel, TaskNodeModel
 from packages.shared.identifiers import generate_id
+from services.context_engine.service import AgentOrchestrator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class PlannerHeuristic:
+class AIPlanner:
     """
-    A heuristic planner that generates a DAG based on intents until the AI Context Engine (RFC-006) is available.
+    A real planner that invokes the AI Context Engine to generate a DAG based on intents.
     """
 
-    def __init__(self, organization_id: UUID, plan_id: UUID):
+    def __init__(self, session: AsyncSession, organization_id: UUID, plan_id: UUID):
+        self.session = session
         self.organization_id = organization_id
         self.plan_id = plan_id
 
-    def build_plan(self, intent: str) -> tuple[list[TaskNodeModel], list[TaskEdgeModel]]:
+    async def build_plan(self, repository_id: UUID, intent: str) -> tuple[list[TaskNodeModel], list[TaskEdgeModel]]:
+        orchestrator = AgentOrchestrator(self.session, self.organization_id)
+        
+        # Override the template in the DB or pass the prompt directly
+        # For simplicity, we just pass the prompt directly in the query and use a default template name
+        prompt = f"""
+You are an autonomous AI software engineer. Your task is to plan the execution of the following intent.
+Intent: {intent}
+
+Output a JSON object with 'nodes' and 'edges'.
+Nodes have 'id', 'type' (e.g. 'command', 'edit_file', 'verify'), 'target' (e.g. 'workspace' or file path), and 'parameters'.
+Edges have 'from', 'to', and 'condition' (e.g. 'on_success').
+
+Example JSON:
+{{
+  "nodes": [
+    {{"id": "n1", "type": "command", "target": "workspace", "parameters": {{"command": "npm install"}}}},
+    {{"id": "n2", "type": "edit_file", "target": "src/index.ts", "parameters": {{"changes": "Fix bug"}}}}
+  ],
+  "edges": [
+    {{"from": "n1", "to": "n2", "condition": "on_success"}}
+  ]
+}}
+"""
+        # Call the orchestrator
+        interaction = await orchestrator.invoke_agent(repository_id, prompt, "planning_template", self.plan_id)
+        
+        try:
+            plan_data = json.loads(interaction.response_text)
+        except json.JSONDecodeError:
+            # Fallback if AI didn't return valid JSON
+            plan_data = {
+                "nodes": [{"id": "fallback", "type": "command", "target": "workspace", "parameters": {"command": "echo 'Invalid JSON from AI'"}}],
+                "edges": []
+            }
+
         nodes = []
         edges = []
+        node_id_map = {}
 
-        intent_lower = intent.lower()
+        for n_data in plan_data.get("nodes", []):
+            node_id = generate_id()
+            node_id_map[n_data.get("id")] = node_id
+            nodes.append(TaskNodeModel(
+                id=node_id,
+                organization_id=self.organization_id,
+                plan_id=self.plan_id,
+                action_type=n_data.get("type", "unknown"),
+                target=n_data.get("target", "workspace"),
+                parameters=n_data.get("parameters", {}),
+            ))
 
-        # Step 1: Tool Selection and Risk Analysis (Mocked via heuristics)
-        if "install" in intent_lower or "dependency" in intent_lower:
-            cmd = "npm install" if "npm" in intent_lower else "uv pip install"
-            install_node = self._create_node("command", "workspace", {"command": cmd})
-            nodes.append(install_node)
-
-        # Step 2: Source code modifications
-        if "implement" in intent_lower or "update" in intent_lower or "edit" in intent_lower:
-            # Extract basic file paths if present
-            files_to_edit = re.findall(r"([a-zA-Z0-9_\-\./]+\.(?:ts|js|py|md))", intent)
-            if not files_to_edit:
-                files_to_edit = ["src/index.ts"]  # Fallback
-
-            edit_nodes = []
-            for file in files_to_edit:
-                node = self._create_node("edit_file", file, {"changes": f"Apply intent: {intent[:50]}..."})
-                nodes.append(node)
-                edit_nodes.append(node)
-
-            # Link install -> edits
-            install_node = next((n for n in nodes if n.action_type == "command"), None)
-            if install_node:
-                for en in edit_nodes:
-                    edges.append(self._create_edge(install_node.id, en.id, "on_success"))
-
-        # Step 3: Verification Planning
-        verify_node = self._create_node("verify", "workspace", {"strategy": "lint_and_test"})
-        nodes.append(verify_node)
-
-        # Link all edits -> verify
-        edit_nodes = [n for n in nodes if n.action_type == "edit_file"]
-        if not edit_nodes:
-            # Link install -> verify
-            install_node = next((n for n in nodes if n.action_type == "command"), None)
-            if install_node:
-                edges.append(self._create_edge(install_node.id, verify_node.id, "on_success"))
-        else:
-            for en in edit_nodes:
-                edges.append(self._create_edge(en.id, verify_node.id, "on_success"))
-
-        # If no nodes were added, add a fallback
-        if not nodes:
-            fallback = self._create_node("review", "workspace", {"reason": "Could not determine actions from intent"})
-            nodes.append(fallback)
+        for e_data in plan_data.get("edges", []):
+            from_id = node_id_map.get(e_data.get("from"))
+            to_id = node_id_map.get(e_data.get("to"))
+            if from_id and to_id:
+                edges.append(TaskEdgeModel(
+                    id=generate_id(),
+                    organization_id=self.organization_id,
+                    plan_id=self.plan_id,
+                    from_node_id=from_id,
+                    to_node_id=to_id,
+                    condition=e_data.get("condition", "on_success"),
+                ))
 
         return nodes, edges
-
-    def _create_node(self, action_type: str, target: str, parameters: dict[str, Any]) -> TaskNodeModel:
-        return TaskNodeModel(
-            id=generate_id(),
-            organization_id=self.organization_id,
-            plan_id=self.plan_id,
-            action_type=action_type,
-            target=target,
-            parameters=parameters,
-        )
-
-    def _create_edge(self, from_id: UUID, to_id: UUID, condition: str) -> TaskEdgeModel:
-        return TaskEdgeModel(
-            id=generate_id(),
-            organization_id=self.organization_id,
-            plan_id=self.plan_id,
-            from_node_id=from_id,
-            to_node_id=to_id,
-            condition=condition,
-        )

@@ -13,6 +13,7 @@ class OrganizationModel(IdMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     billing_plan: Mapped[str] = mapped_column(String(50), nullable=False, default="FREE")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    provider_config: Mapped[dict | None] = mapped_column(nullable=True)
 
 
 class UserModel(IdMixin, TimestampMixin, Base):
@@ -22,6 +23,7 @@ class UserModel(IdMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    github_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class RoleBindingModel(IdMixin, TimestampMixin, Base):

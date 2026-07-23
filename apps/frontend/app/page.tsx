@@ -1,261 +1,116 @@
 'use client';
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { env } from "../config/env";
+import { Github, Database, Search, ArrowRight, Loader2, Plus, Server, Activity } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-export default function Home() {
-  const [organizationId, setOrganizationId] = useState("00000000-0000-0000-0000-000000000000");
-  const [repositoryId, setRepositoryId] = useState<string | null>(null);
-  const [importJobId, setImportJobId] = useState<string | null>(null);
-  const [planId, setPlanId] = useState<string | null>(null);
-  const [executionId, setExecutionId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [planData, setPlanData] = useState<any>(null);
+export default function DashboardPage() {
+  const [repos, setRepos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-  const addLog = (msg: string) => {
-    setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
-  };
-
-  const getHeaders = () => ({
-    "Content-Type": "application/json",
-    "X-Organization-Id": organizationId,
-  });
-
-  // Polling helper
-  const poll = async (url: string, condition: (data: any) => boolean, interval = 1000, maxRetries = 30) => {
-    for (let i = 0; i < maxRetries; i++) {
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}${url}`, { headers: getHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        if (condition(data)) return data;
+  useEffect(() => {
+    const fetchRepos = async () => {
+      const token = localStorage.getItem("forge_token");
+      const orgId = localStorage.getItem("forge_org_id");
+      
+      try {
+        const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/imported`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "X-Organization-Id": orgId || ""
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRepos(data.repositories);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
       }
-      await new Promise(r => setTimeout(r, interval));
-    }
-    throw new Error("Polling timeout");
-  };
-
-  const handleImport = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      addLog("Starting repository import...");
-      const randomSuffix = Math.floor(Math.random() * 1000000);
-      const repoName = `test-repo-${randomSuffix}`;
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/import`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({ clone_url: "file:///tmp/dummy", owner: "dummy", name: repoName }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setRepositoryId(data.repository_id);
-      setImportJobId(data.import_job_id);
-      addLog(`Import queued (repo: ${data.repository_id})`);
-      // Simulating polling for import completion
-      addLog("Import completed.");
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleIndex = async () => {
-    if (!repositoryId) return;
-    setLoading(true);
-    try {
-      addLog("Starting memory indexing...");
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/memory/repositories/${repositoryId}/index`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({ branch: "main" }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      addLog("Indexing started. Polling for completion...");
-      // Simulating completion since backend may process synchronously or async
-      addLog("Indexing completed. Extracted symbols are available.");
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePlan = async () => {
-    if (!repositoryId) return;
-    setLoading(true);
-    try {
-      addLog("Generating plan...");
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/${repositoryId}/plans`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({ intent: "Add a new feature" }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setPlanId(data.id);
-      setPlanData(data);
-      addLog(`Plan ${data.id} generated.`);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApprove = async () => {
-    if (!planId) return;
-    setLoading(true);
-    try {
-      addLog("Approving plan...");
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${planId}/approve`, {
-        method: "POST",
-        headers: getHeaders(),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      addLog("Plan approved.");
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExecute = async () => {
-    if (!planId) return;
-    setLoading(true);
-    try {
-      addLog("Starting execution...");
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${planId}`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setExecutionId(data.id || "dummy-exec");
-      addLog("Execution started. Observing updates...");
-      // Simulate polling
-      setTimeout(() => addLog("Execution completed. File mutations applied."), 1500);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    
+    fetchRepos();
+  }, []);
 
   return (
-    <div className="flex flex-col max-w-5xl mx-auto w-full p-8 pt-12 text-gray-100 min-h-screen bg-gray-950 font-sans">
-      <header className="mb-10 border-b border-gray-800 pb-6">
-        <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Forge Dashboard</h1>
-        <p className="text-gray-400 text-lg">Autonomous Engineering Run Control</p>
-      </header>
+    <div className="p-8 max-w-5xl mx-auto">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Dashboard</h1>
+          <p className="text-muted">Welcome to Forge AI. Manage your imported repositories and runs.</p>
+        </div>
+        <button
+          onClick={() => router.push('/repositories')} 
+          className="bg-accent hover:bg-accent/90 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" /> Import Repository
+        </button>
+      </div>
 
-      <div className="mb-6 flex gap-4 items-end">
-        <div className="flex-1">
-          <label className="block text-sm font-medium text-gray-400 mb-1">Organization ID</label>
-          <input 
-            type="text" 
-            value={organizationId} 
-            onChange={(e) => setOrganizationId(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-700 rounded-md p-2 text-white font-mono text-sm"
-          />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
+          <div className="text-muted flex items-center gap-2 mb-2"><Database className="w-4 h-4" /> Imported Repos</div>
+          <div className="text-3xl font-bold text-white">{loading ? "-" : repos.length}</div>
+        </div>
+        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
+          <div className="text-muted flex items-center gap-2 mb-2"><Activity className="w-4 h-4" /> Active Runs</div>
+          <div className="text-3xl font-bold text-white">0</div>
+        </div>
+        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
+          <div className="text-muted flex items-center gap-2 mb-2"><Server className="w-4 h-4" /> Execution Nodes</div>
+          <div className="text-3xl font-bold text-green-400">Online</div>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-950 border border-red-900 rounded-md text-red-200">
-          <strong>Error:</strong> {error}
+      <h2 className="text-xl font-semibold tracking-tight text-white mb-4">Your Repositories</h2>
+      
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-muted gap-3">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading repositories...
+        </div>
+      ) : repos.length === 0 ? (
+        <div className="bg-surface border border-border border-dashed rounded-xl p-12 text-center">
+          <Database className="w-12 h-12 text-muted mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-white mb-2">No repositories imported</h3>
+          <p className="text-muted mb-6">Import a repository from GitHub to start using Forge AI.</p>
+          <button
+            onClick={() => router.push('/repositories')} 
+            className="bg-accent hover:bg-accent/90 text-white px-6 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
+          >
+            <Github className="w-4 h-4" /> Browse GitHub
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {repos.map(repo => (
+            <Link href={`/repositories/${repo.id}`} key={repo.id} className="bg-surface border border-border rounded-xl p-5 hover:border-accent/50 transition-colors flex flex-col justify-between group">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <Github className="w-5 h-5 text-muted" />
+                  <h3 className="font-medium text-white truncate" title={repo.name}>{repo.name}</h3>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider ${repo.status === 'READY' ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'}`}>
+                    {repo.status}
+                  </span>
+                </div>
+                <p className="text-sm text-muted mb-4 h-5">{repo.owner}/{repo.name}</p>
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-4">
+                <div className="text-xs text-muted flex items-center gap-1">
+                  <Database className="w-3 h-3" /> {repo.default_branch}
+                </div>
+                <span className="text-accent group-hover:text-white text-sm font-medium flex items-center gap-1 transition-colors">
+                  View <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                </span>
+              </div>
+            </Link>
+          ))}
         </div>
       )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="flex flex-col gap-4">
-          <section className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-            <h2 className="text-xl font-semibold mb-4 text-white">Workflow Controls</h2>
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={handleImport} 
-                disabled={loading}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-md transition-colors text-left"
-                id="btn-import"
-              >
-                1. Register & Import Repository
-              </button>
-              
-              <button 
-                onClick={handleIndex} 
-                disabled={loading || !repositoryId}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-md transition-colors text-left"
-                id="btn-index"
-              >
-                2. Start Memory Indexing
-              </button>
-              
-              <button 
-                onClick={handlePlan} 
-                disabled={loading || !repositoryId}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-md transition-colors text-left"
-                id="btn-plan"
-              >
-                3. Create Task & Generate Plan
-              </button>
-              
-              <button 
-                onClick={handleApprove} 
-                disabled={loading || !planId}
-                className="bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-md transition-colors text-left"
-                id="btn-approve"
-              >
-                4. Approve Plan
-              </button>
-              
-              <button 
-                onClick={handleExecute} 
-                disabled={loading || !planId}
-                className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-md transition-colors text-left"
-                id="btn-execute"
-              >
-                5. Start Execution & Verify
-              </button>
-            </div>
-          </section>
-
-          {planData && (
-            <section className="bg-gray-900 border border-gray-800 rounded-xl p-6" id="plan-section">
-              <h2 className="text-xl font-semibold mb-4 text-white flex justify-between">
-                <span>Plan DAG</span>
-                <span className="text-xs bg-yellow-500/20 text-yellow-500 px-2 py-1 rounded">PENDING_APPROVAL</span>
-              </h2>
-              <div className="text-sm font-mono text-gray-400 overflow-auto max-h-48">
-                {JSON.stringify(planData, null, 2)}
-              </div>
-            </section>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 h-full flex flex-col">
-            <h2 className="text-xl font-semibold mb-4 text-white">Execution Logs & Status</h2>
-            <div 
-              className="flex-1 bg-black rounded-md border border-gray-800 p-4 font-mono text-sm overflow-auto" 
-              style={{ minHeight: "300px" }}
-              id="log-console"
-            >
-              {logs.length === 0 ? (
-                <span className="text-gray-600">Waiting for events...</span>
-              ) : (
-                logs.map((log, idx) => (
-                  <div key={idx} className="mb-1 text-green-400">{log}</div>
-                ))
-              )}
-              {loading && <div className="mt-2 text-blue-400 animate-pulse">Processing...</div>}
-            </div>
-          </section>
-        </div>
-      </div>
     </div>
   );
 }

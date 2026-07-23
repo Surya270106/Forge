@@ -63,12 +63,11 @@ class PlanningService:
         self.session.add(plan)
         await self.session.flush()
 
-        # 2. Invoke AI Context Engine (Mocked for RFC-003, actual impl in RFC-006)
-        # We use a PlannerHeuristic for now to generate deterministic DAGs from intent.
-        from .planner import PlannerHeuristic
+        # 2. Invoke AI Context Engine
+        from .planner import AIPlanner
 
-        planner = PlannerHeuristic(self.organization_id, plan.id)
-        nodes, edges = planner.build_plan(intent)
+        planner = AIPlanner(self.session, self.organization_id, plan.id)
+        nodes, edges = await planner.build_plan(repository_id, intent)
         self.session.add_all(nodes)
         self.session.add_all(edges)
         await self.session.flush()

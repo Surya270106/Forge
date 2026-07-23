@@ -11,21 +11,12 @@ from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import OrganizationId, generate_id
 
 from .schemas import ExecutionJobResponse, ExecutionLogResponse, StartExecutionRequest
+from packages.database.models.execution import MutationModel
 
 router = APIRouter(prefix="/api/v1/executions", tags=["execution"])
 
 
-from fastapi import Header
-
-
-async def get_tenant_organization_id(
-    x_organization_id: str | None = Header("00000000-0000-0000-0000-000000000000", alias="X-Organization-Id"),
-) -> OrganizationId:
-    from packages.database.tenant import set_tenant
-
-    org_id = OrganizationId(UUID(x_organization_id))
-    set_tenant(org_id)
-    return org_id
+from services.auth.dependencies import get_tenant_context as get_tenant_organization_id
 
 
 async def get_db_session(org_id: OrganizationId = Depends(get_tenant_organization_id)):
@@ -100,3 +91,30 @@ async def get_execution_logs(
 
     logs = (await session.execute(stmt)).scalars().all()
     return logs
+
+@router.get("/{job_id}/mutations")
+async def get_execution_mutations(
+    job_id: UUID,
+    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    stmt = (
+        select(MutationModel)
+        .where(
+            MutationModel.execution_job_id == job_id,
+            MutationModel.organization_id == organization_id,
+        )
+    )
+    mutations = (await session.execute(stmt)).scalars().all()
+    
+    return {
+        "mutations": [
+            {
+                "id": str(m.id),
+                "file_path": m.file_path,
+                "mutation_type": m.mutation_type,
+                "diff_hunk": m.diff_hunk
+            }
+            for m in mutations
+        ]
+    }

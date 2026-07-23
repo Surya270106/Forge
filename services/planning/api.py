@@ -14,17 +14,7 @@ from .service import PlanningService
 router = APIRouter(tags=["planning"])
 
 
-from fastapi import Header
-
-
-async def get_tenant_organization_id(
-    x_organization_id: str | None = Header("00000000-0000-0000-0000-000000000000", alias="X-Organization-Id"),
-) -> OrganizationId:
-    from packages.database.tenant import set_tenant
-
-    org_id = OrganizationId(UUID(x_organization_id))
-    set_tenant(org_id)
-    return org_id
+from services.auth.dependencies import get_tenant_context as get_tenant_organization_id
 
 
 async def get_db_session(org_id: OrganizationId = Depends(get_tenant_organization_id)):
@@ -83,3 +73,27 @@ async def approve_plan(
     plan_dict = plan.__dict__.copy()
     plan_dict["edges"] = edges
     return plan_dict
+
+from packages.database.models.planning import PlanModel
+
+@router.get("/api/v1/plans")
+async def list_plans(
+    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    stmt = select(PlanModel).where(PlanModel.organization_id == organization_id).order_by(PlanModel.created_at.desc())
+    result = await session.execute(stmt)
+    plans = result.scalars().all()
+    
+    return {
+        "plans": [
+            {
+                "id": str(p.id),
+                "intent": p.intent,
+                "status": p.status.value,
+                "repository_id": str(p.repository_id),
+                "created_at": p.created_at.isoformat() if p.created_at else None
+            }
+            for p in plans
+        ]
+    }

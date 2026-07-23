@@ -109,9 +109,59 @@ class AgentOrchestrator:
 
         await self.publisher.publish(create_context_assembled_event(self.organization_id, repository_id, snapshot.id, plan_id))
 
-        # 5. Invoke LLM (Mocked)
-        mock_response = "Here is the plan to achieve your intent..."
-        mock_tools = [{"type": "function", "name": "create_plan", "arguments": {}}]
+        # 5. Invoke LLM (Real Implementation)
+        from packages.database.models.auth import OrganizationModel
+        import httpx
+        import json
+        
+        org = await self.session.get(OrganizationModel, self.organization_id)
+        provider_config = org.provider_config or {} if org else {}
+        api_key = provider_config.get("api_key")
+        provider = provider_config.get("provider", "openai").lower()
+        model_name = provider_config.get("model", "gpt-4o")
+
+        response_text = ""
+        tool_calls = []
+
+        if not api_key:
+            # Fallback to mock for local testing without key
+            response_text = '{"nodes": [{"id": "install", "type": "command", "target": "workspace", "parameters": {"command": "echo mock"}}], "edges": []}'
+        else:
+            async with httpx.AsyncClient() as client:
+                if provider == "openai":
+                    resp = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={
+                            "model": model_name,
+                            "messages": [{"role": "user", "content": rendered_prompt}],
+                            "response_format": {"type": "json_object"}
+                        },
+                        timeout=60.0
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        response_text = data["choices"][0]["message"]["content"]
+                    else:
+                        raise Exception(f"OpenAI error: {resp.text}")
+                elif provider == "anthropic":
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                        json={
+                            "model": model_name,
+                            "max_tokens": 4000,
+                            "messages": [{"role": "user", "content": rendered_prompt}]
+                        },
+                        timeout=60.0
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        response_text = data["content"][0]["text"]
+                    else:
+                        raise Exception(f"Anthropic error: {resp.text}")
+                else:
+                    raise Exception(f"Unsupported provider: {provider}")
 
         # 6. Save Interaction
         interaction = AgentInteractionModel(
@@ -119,12 +169,12 @@ class AgentOrchestrator:
             organization_id=self.organization_id,
             repository_id=repository_id,
             context_snapshot_id=snapshot.id,
-            provider=template.default_provider,
-            model=template.default_model,
-            response_text=mock_response,
-            tool_calls=mock_tools,
+            provider=provider,
+            model=model_name,
+            response_text=response_text,
+            tool_calls=tool_calls,
             prompt_tokens=snapshot.tokens_estimated,
-            completion_tokens=len(mock_response) // 4,
+            completion_tokens=len(response_text) // 4,
             latency_ms=1500,
         )
         self.session.add(interaction)

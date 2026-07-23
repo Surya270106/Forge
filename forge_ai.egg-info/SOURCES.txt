@@ -41,6 +41,9 @@ packages/shared/logging.py
 packages/shared/pagination.py
 packages/shared/result.py
 services/__init__.py
+services/auth/api.py
+services/auth/dependencies.py
+services/auth/jwt.py
 services/auth/middleware.py
 services/context_engine/api.py
 services/context_engine/events.py
@@ -61,6 +64,7 @@ services/planning/schemas.py
 services/planning/service.py
 services/repository_import/__init__.py
 services/repository_import/api.py
+services/repository_import/events.py
 services/repository_import/schemas.py
 services/repository_import/service.py
 services/repository_import/worker.py

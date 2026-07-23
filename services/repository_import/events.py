@@ -4,6 +4,7 @@ from packages.shared.events import EventEnvelope, EventPublisher
 from packages.database.models.outbox_event import OutboxEventModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+
 class ImportEventPublisher(EventPublisher):
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -24,6 +25,7 @@ class ImportEventPublisher(EventPublisher):
         )
         self.session.add(outbox_event)
         await self.session.flush()
+
 
 def create_import_started_event(org_id: UUID, repo_id: UUID, job_id: UUID) -> EventEnvelope:
     return EventEnvelope(

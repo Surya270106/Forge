@@ -1,8 +1,12 @@
-FROM node:20-alpine
+FROM node:24-alpine3.21
 
-RUN addgroup -g 1000 sandbox_group && adduser -u 1000 -G sandbox_group -D sandbox_user
-USER sandbox_user
+USER root
+
+RUN mkdir -p /workspace \
+    && chown node:node /workspace
+
+USER node
+
 WORKDIR /workspace
 
-# Node sandbox image intended for running untrusted code without privileges
 CMD ["node"]

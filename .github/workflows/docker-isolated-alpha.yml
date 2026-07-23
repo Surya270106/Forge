@@ -26,17 +26,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: apps/frontend/package-lock.json
 
       - name: Setup Python & uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v8
         with:
           version: "0.11.29"
 
@@ -65,8 +65,29 @@ jobs:
 
       - name: Build Sandbox Images
         run: |
-          docker build -f Dockerfile.sandbox-python -t forge-sandbox-python:0.1.0-alpha.1 .
-          docker build -f Dockerfile.sandbox-node -t forge-sandbox-node:0.1.0-alpha.1 .
+          set -euxo pipefail
+          docker build \
+            --progress=plain \
+            -f Dockerfile.sandbox-python \
+            -t forge-sandbox-python:0.1.0-alpha.1 \
+            .
+          docker build \
+            --progress=plain \
+            -f Dockerfile.sandbox-node \
+            -t forge-sandbox-node:0.1.0-alpha.1 \
+            .
+
+      - name: Smoke Test Sandbox Images
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            forge-sandbox-python:0.1.0-alpha.1 \
+            python -c "print('python-sandbox-ok')"
+          docker run --rm \
+            forge-sandbox-node:0.1.0-alpha.1 \
+            node -e "console.log('node-sandbox-ok')"
+          test "$(docker run --rm forge-sandbox-python:0.1.0-alpha.1 id -u)" != "0"
+          test "$(docker run --rm forge-sandbox-node:0.1.0-alpha.1 id -u)" != "0"
 
       - name: Inspect Sandbox Images
         run: |
@@ -88,8 +109,12 @@ jobs:
         run: |
           docker compose build
           docker compose up -d
-          # Simple sleep to allow services to initialize, although health checks are better
-          sleep 10
+          timeout 120 bash -c '
+            until docker compose ps --format json | grep -q "\"Health\":\"healthy\""; do
+              docker compose ps
+              sleep 3
+            done
+          '
           docker compose ps > compose_ps.txt
 
       - name: Run Docker Integration Tests

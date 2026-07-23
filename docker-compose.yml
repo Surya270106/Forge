@@ -9,6 +9,8 @@ services:
       POSTGRES_DB: forge
     ports:
       - "5432:5432"
+    volumes:
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forge"]
       interval: 5s

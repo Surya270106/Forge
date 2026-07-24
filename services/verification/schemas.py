@@ -4,15 +4,24 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from packages.database.models.verification import DiagnosticType, VerificationStatus
+from packages.database.models.verification import VerificationStatus
 
 
 class VerificationResultSchema(BaseModel):
     id: UUID
-    diagnostic_type: DiagnosticType
-    is_passed: bool
-    output: str
-    parsed_diagnostics: list[dict[str, Any]]
+    verifier: str
+    status: VerificationStatus
+    exit_code: int | None
+    duration_ms: int | None
+    stdout: str | None
+    stderr: str | None
+    stdout_truncated: bool
+    stderr_truncated: bool
+    blocking: bool
+    attempt: int
+    diagnostics: list[dict[str, Any]]
+    started_at: datetime | None
+    finished_at: datetime | None
 
     class Config:
         from_attributes = True

@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -7,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.models.execution import ExecutionJobModel, ExecutionStatus
 from packages.database.models.verification import (
-    DiagnosticType,
     RepairAttemptModel,
+    RepairAttemptStatus,
     VerificationJobModel,
     VerificationResultModel,
     VerificationStatus,
@@ -16,7 +17,7 @@ from packages.database.models.verification import (
 from packages.shared.config import get_settings
 from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
-from services.execution.sandbox import LocalProcessSandbox
+from services.execution.sandbox import DockerSandbox
 
 from .events import (
     VerificationEventPublisher,
@@ -24,6 +25,7 @@ from .events import (
     create_verification_completed_event,
     create_verification_started_event,
 )
+from .registry import VerificationRegistry, VerifierDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +54,6 @@ class VerificationDispatcher:
             organization_id=self.organization_id,
             repository_id=exec_job.repository_id,
             execution_job_id=execution_job_id,
-            status=VerificationStatus.PENDING,
         )
         self.session.add(job)
         await self.session.commit()
@@ -60,77 +61,103 @@ class VerificationDispatcher:
 
     async def run_verification(self, verification_job_id: UUID) -> None:
         job = await self.session.get(VerificationJobModel, verification_job_id)
-        if not job or job.status != VerificationStatus.PENDING:
+        if not job:
             return
 
-        job.status = VerificationStatus.RUNNING
         job.started_at = datetime.now(UTC)
         await self.publisher.publish(create_verification_started_event(self.organization_id, job.repository_id, job.id, job.execution_job_id))
         await self.session.commit()
 
         workspace_dir = os.path.join(self.settings.workspace_root, str(job.organization_id), str(job.repository_id))
-        sandbox = LocalProcessSandbox(workspace_dir)
+        sandbox = DockerSandbox(workspace_dir, network_disabled=True)
+        registry = VerificationRegistry(workspace_dir)
+
+        verifiers = registry.get_verifiers()
 
         try:
-            # 1. Run Linter (Mocking the process for demonstration, usually we'd parse repo language config)
-            lint_res = await sandbox.run_command(["npm", "run", "lint"])
-            lint_passed = lint_res.exit_code == 0
+            await sandbox._ensure_container()
 
-            res_lint = VerificationResultModel(
-                id=generate_id(),
-                organization_id=self.organization_id,
-                verification_job_id=job.id,
-                diagnostic_type=DiagnosticType.LINT,
-                is_passed=lint_passed,
-                output=lint_res.stdout + "\n" + lint_res.stderr,
-            )
-            self.session.add(res_lint)
+            all_passed = True
 
-            # 2. Run Tests
-            test_res = await sandbox.run_command(["npm", "run", "test"])
-            test_passed = test_res.exit_code == 0
+            for verifier in verifiers:
+                if not verifier.enabled:
+                    continue
 
-            res_test = VerificationResultModel(
-                id=generate_id(),
-                organization_id=self.organization_id,
-                verification_job_id=job.id,
-                diagnostic_type=DiagnosticType.UNIT_TEST,
-                is_passed=test_passed,
-                output=test_res.stdout + "\n" + test_res.stderr,
-            )
-            self.session.add(res_test)
+                full_cmd = verifier.command + verifier.arguments
+                start_time = time.time()
 
-            all_passed = lint_passed and test_passed
-            job.status = VerificationStatus.PASSED if all_passed else VerificationStatus.FAILED
+                res = await sandbox.run_command(full_cmd, cwd=verifier.working_directory)
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                is_passed = res.exit_code == 0
+
+                if verifier.blocking and not is_passed:
+                    all_passed = False
+
+                res_model = VerificationResultModel(
+                    id=generate_id(),
+                    organization_id=self.organization_id,
+                    verification_job_id=job.id,
+                    execution_id=job.execution_job_id,
+                    verifier=verifier.identifier,
+                    status=VerificationStatus.PASSED if is_passed else VerificationStatus.FAILED,
+                    exit_code=res.exit_code,
+                    started_at=datetime.fromtimestamp(start_time, UTC),
+                    finished_at=datetime.now(UTC),
+                    duration_ms=duration_ms,
+                    stdout=res.stdout[:50000],  # Truncate to avoid massive logs
+                    stderr=res.stderr[:50000],
+                    stdout_truncated=len(res.stdout) > 50000,
+                    stderr_truncated=len(res.stderr) > 50000,
+                    blocking=verifier.blocking,
+                    attempt=1,
+                    diagnostics=self._parse_diagnostics(verifier, res.stdout, res.stderr),
+                )
+                self.session.add(res_model)
+                await self.session.commit()
+
             job.finished_at = datetime.now(UTC)
-
             await self.publisher.publish(create_verification_completed_event(self.organization_id, job.repository_id, job.id, all_passed))
             await self.session.commit()
 
             if not all_passed:
-                await self._trigger_repair(job, res_lint, res_test)
+                await self._trigger_repair(job)
 
         except Exception as e:
             logger.error("verification_error", error=str(e))
-            job.status = VerificationStatus.ERROR
             job.finished_at = datetime.now(UTC)
             await self.session.commit()
+        finally:
+            await sandbox.cleanup()
 
-    async def _trigger_repair(
-        self,
-        job: VerificationJobModel,
-        lint_res: VerificationResultModel,
-        test_res: VerificationResultModel,
-    ):
-        # In RFC-005, if verification fails, we trigger a repair loop (Phase 5/6 combo)
-        # We would invoke the AI Context Engine to build a repair plan, then create an ExecutionJob.
-        # This is a stub for that integration point.
+    def _parse_diagnostics(self, verifier: VerifierDefinition, stdout: str, stderr: str) -> list[dict]:
+        # Simple stub for diagnostic parsing
+        # In the future, this would use regex or JSON parsing based on verifier.diagnostic_parser
+        if not stdout and not stderr:
+            return []
+
+        return [
+            {
+                "severity": "error",
+                "code": "EXEC_FAIL",
+                "message": "Process returned non-zero exit code or had output",
+                "file": "",
+                "line": 0,
+                "column": 0,
+                "end_line": 0,
+                "end_column": 0,
+                "blocking": verifier.blocking,
+            }
+        ]
+
+    async def _trigger_repair(self, job: VerificationJobModel):
         repair = RepairAttemptModel(
             id=generate_id(),
             organization_id=self.organization_id,
             repository_id=job.repository_id,
             verification_job_id=job.id,
-            repair_execution_id=generate_id(),  # Mocked new execution job ID
+            status=RepairAttemptStatus.QUEUED,
+            attempt_number=1,
             prompt_used="Fix the following lint and test errors: ...",
         )
         self.session.add(repair)

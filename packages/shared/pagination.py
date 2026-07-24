@@ -14,8 +14,9 @@ class PaginationParams(BaseModel):
     def offset(self) -> int:
         return (self.page - 1) * self.page_size
 
+from typing import Generic, TypeVar
 
-class PaginatedResponse[T](BaseModel):
+class PaginatedResponse(BaseModel, Generic[T]):
     items: Sequence[T]
     total: int
     page: int

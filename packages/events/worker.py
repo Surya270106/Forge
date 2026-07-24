@@ -36,6 +36,7 @@ class EventWorker:
         self.consumer_name = consumer_name
         self.streams = streams
         self.handlers: dict[str, EventHandler] = {}
+        self.global_handlers: list[EventHandler] = []
         self.max_retries = max_retries
         self.dead_letter_stream = dead_letter_stream
         self._running = False
@@ -43,6 +44,9 @@ class EventWorker:
 
     def register_handler(self, event_type: str, handler: EventHandler):
         self.handlers[event_type] = handler
+
+    def register_global_handler(self, handler: EventHandler):
+        self.global_handlers.append(handler)
 
     async def start(self):
         # Create consumer groups
@@ -157,7 +161,7 @@ class EventWorker:
             return
 
         handler = self.handlers.get(event_type)
-        if not handler:
+        if not handler and not self.global_handlers:
             logger.debug("No handler for event", event_type=event_type)
             await self.redis.xack(stream, self.consumer_group, message_id)
             return
@@ -183,7 +187,14 @@ class EventWorker:
                 if "payload" in data and isinstance(data["payload"], str):
                     data["payload"] = json.loads(data["payload"])
 
-                await handler(data, session)
+                for g_handler in self.global_handlers:
+                    try:
+                        await g_handler(data, session)
+                    except Exception as ge:
+                        logger.error("Global handler failed", event_type=event_type, error=str(ge))
+
+                if handler:
+                    await handler(data, session)
 
                 # Mark processed for idempotency
                 processed = ProcessedEventModel(

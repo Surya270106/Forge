@@ -20,19 +20,43 @@ GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 
+from datetime import datetime, timezone
 
 @router.get("/github/login")
-async def github_login():
+async def github_login(session: AsyncSession = Depends(get_session)):
     settings = get_settings()
     if not settings.github_client_id:
         raise HTTPException(status_code=500, detail="GitHub Client ID not configured")
 
-    redirect_uri = f"{GITHUB_OAUTH_URL}?client_id={settings.github_client_id}&scope=user:email repo"
+    state = str(generate_id())
+    from packages.database.models.auth import OAuthStateModel
+    oauth_state = OAuthStateModel(
+        id=generate_id(),
+        state=state,
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
+    )
+    session.add(oauth_state)
+    await session.commit()
+
+    redirect_uri = f"{GITHUB_OAUTH_URL}?client_id={settings.github_client_id}&scope=user:email repo&state={state}"
     return {"url": redirect_uri}
 
-
 @router.get("/github/callback")
-async def github_callback(code: str, request: Request, session: AsyncSession = Depends(get_session)):
+async def github_callback(code: str, state: str, request: Request, session: AsyncSession = Depends(get_session)):
+    from packages.database.models.auth import OAuthStateModel, SessionModel
+    import secrets
+
+    # Verify state
+    stmt = select(OAuthStateModel).where(OAuthStateModel.state == state)
+    result = await session.execute(stmt)
+    oauth_state = result.scalar_one_or_none()
+
+    if not oauth_state or oauth_state.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+    
+    # Delete state so it can't be reused
+    await session.delete(oauth_state)
+
     settings = get_settings()
     if not settings.github_client_id or not settings.github_client_secret:
         raise HTTPException(status_code=500, detail="GitHub credentials not configured")
@@ -82,11 +106,26 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
 
         org = OrganizationModel(id=generate_id(), name=f"{user.name}'s Workspace", billing_plan="FREE", is_active=True)
         session.add(org)
+        
+        await session.flush()
 
         binding = RoleBindingModel(id=generate_id(), organization_id=org.id, user_id=user.id, role="OWNER")
         session.add(binding)
     else:
         user.github_token = encrypted_token
+
+    # Create server-side session
+    session_token = secrets.token_urlsafe(32)
+    new_session = SessionModel(
+        id=generate_id(),
+        user_id=user.id,
+        session_token=session_token,
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7),
+        is_active=True,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    session.add(new_session)
 
     await session.commit()
 
@@ -95,29 +134,76 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
     org_ids = [row[0] for row in org_result.fetchall()]
     default_org_id = org_ids[0] if org_ids else None
 
-    jwt_token = create_access_token(data={"sub": str(user.id), "email": user.email}, expires_delta=timedelta(days=7))
+    # We also keep JWT for statelessness or we can just use the opaque session_token
+    # Since the system already has JWT logic, we'll embed the session_id in the JWT to allow hybrid approaches
+    jwt_token = create_access_token(data={"sub": str(user.id), "email": user.email, "session_id": str(new_session.id), "session_token": session_token}, expires_delta=timedelta(days=7))
 
-    frontend_url = settings.cors_origins[0] if settings.cors_origins else "http://localhost:3000"
-    redirect_url = f"{frontend_url}/login/success?org_id={str(default_org_id)}"
+    frontend_url = settings.frontend_url
+    redirect_url = f"{frontend_url}/login/callback?org_id={str(default_org_id)}&token={jwt_token}"
 
     response = RedirectResponse(url=redirect_url)
-    response.set_cookie(
-        key="forge_session",
-        value=jwt_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=7 * 24 * 60 * 60, # 7 days
-    )
     return response
 
 @router.post("/logout")
-async def logout():
+async def logout(request: Request, session: AsyncSession = Depends(get_session)):
+    from packages.database.models.auth import SessionModel
+    
+    # Try to invalidate in DB if we have a valid JWT with a session ID
+    token = request.cookies.get("forge_session")
+    if token:
+        from services.auth.jwt import decode_access_token
+        try:
+            payload = decode_access_token(token)
+            session_id = payload.get("session_id")
+            if session_id:
+                stmt = select(SessionModel).where(SessionModel.id == session_id)
+                result = await session.execute(stmt)
+                db_session = result.scalar_one_or_none()
+                if db_session:
+                    db_session.is_active = False
+                    await session.commit()
+        except Exception:
+            pass
+
     response = RedirectResponse(url="/")
     response.delete_cookie("forge_session", httponly=True, secure=True, samesite="lax")
     return response
 
+@router.get("/sessions")
+async def list_sessions(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    from packages.database.models.auth import SessionModel
+    stmt = select(SessionModel).where(
+        SessionModel.user_id == user["id"],
+        SessionModel.is_active == True
+    )
+    result = await session.execute(stmt)
+    sessions = []
+    for db_session in result.scalars():
+        sessions.append({
+            "id": str(db_session.id),
+            "ip_address": db_session.ip_address,
+            "user_agent": db_session.user_agent,
+            "created_at": db_session.created_at,
+            "expires_at": db_session.expires_at
+        })
+    return {"sessions": sessions}
 
+@router.delete("/sessions/{session_id}")
+async def revoke_session(session_id: str, user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    from packages.database.models.auth import SessionModel
+    stmt = select(SessionModel).where(
+        SessionModel.id == session_id,
+        SessionModel.user_id == user["id"]
+    )
+    result = await session.execute(stmt)
+    db_session = result.scalar_one_or_none()
+    
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db_session.is_active = False
+    await session.commit()
+    return {"status": "revoked"}
 
 @router.get("/me")
 async def get_current_user_profile(user: dict = Depends(get_current_user)):

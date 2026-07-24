@@ -90,6 +90,10 @@ export default function RepositoryDetailPage() {
       if (res.ok) {
         const newPlan = await res.json();
         router.push(`/tasks/${newPlan.id}`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error("Failed to create plan:", err);
+        alert(`Failed to create plan: ${err.detail || err.message || res.status}`);
       }
     } catch (e) {
       console.error(e);
@@ -154,7 +158,21 @@ export default function RepositoryDetailPage() {
         </div>
         <div className="bg-surface border border-border rounded-xl p-6">
           <div className="text-muted flex items-center gap-2 mb-2"><Search className="w-4 h-4" /> Memory Index</div>
-          <div className="text-lg font-medium text-yellow-400">Needs Indexing</div>
+          <div className="text-lg font-medium text-yellow-400">
+            {repo.indexing_status === 'COMPLETED' ? (
+              <span className="text-green-400 flex items-center gap-1"><CheckCircle className="w-4 h-4"/> Indexed (100%)</span>
+            ) : repo.indexing_status === 'PARSING' ? (
+              <span className="text-blue-400 flex items-center gap-1"><Loader2 className="w-4 h-4 animate-spin"/> Parsing (66%)</span>
+            ) : repo.indexing_status === 'SCANNING' ? (
+              <span className="text-blue-400 flex items-center gap-1"><Loader2 className="w-4 h-4 animate-spin"/> Scanning (33%)</span>
+            ) : repo.indexing_status === 'PENDING' ? (
+              <span className="text-yellow-400 flex items-center gap-1"><Loader2 className="w-4 h-4 animate-spin"/> Queued (0%)</span>
+            ) : repo.indexing_status === 'FAILED' ? (
+              <span className="text-red-400 flex items-center gap-1"><AlertTriangle className="w-4 h-4"/> Failed</span>
+            ) : (
+              <span>Needs Indexing</span>
+            )}
+          </div>
         </div>
       </div>
 

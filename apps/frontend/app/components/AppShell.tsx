@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     // Verify token
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/auth/me`, {
+    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/me`, {
       headers: {
         "Authorization": `Bearer ${token}`
       }

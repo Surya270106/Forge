@@ -33,3 +33,31 @@ class RoleBindingModel(IdMixin, TimestampMixin, Base):
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g. OWNER, ADMIN, VIEWER
+
+from datetime import datetime
+
+class SessionModel(IdMixin, TimestampMixin, Base):
+    __tablename__ = "sessions"
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    session_token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+class OAuthStateModel(IdMixin, TimestampMixin, Base):
+    __tablename__ = "oauth_states"
+    state: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+
+class InvitationModel(IdMixin, TimestampMixin, Base):
+    __tablename__ = "invitations"
+    __table_args__ = (Index("ix_invitations_org_email", "organization_id", "email", unique=True),)
+
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    is_accepted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

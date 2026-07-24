@@ -7,7 +7,7 @@ import { Github } from "lucide-react";
 export default function LoginPage() {
   const handleGithubLogin = async () => {
     try {
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/auth/github/login`);
+      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/github/login`);
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;

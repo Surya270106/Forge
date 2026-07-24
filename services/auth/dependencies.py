@@ -11,11 +11,17 @@ from services.auth.jwt import decode_access_token
 
 
 async def get_current_user(request: Request, session: AsyncSession = Depends(get_session)) -> dict:
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    token = request.cookies.get("forge_session")
+    
+    if not token:
+        # Fallback for programmatic API access
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+    if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    token = auth_header.split(" ")[1]
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -29,7 +35,10 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
 
-    return {"id": str(user.id), "email": user.email, "name": user.name, "github_token": user.github_token}
+    from packages.shared.crypto import CryptoService
+    decrypted_github_token = CryptoService.decrypt(user.github_token) if user.github_token else None
+
+    return {"id": str(user.id), "email": user.email, "name": user.name, "github_token": decrypted_github_token}
 
 
 async def get_tenant_context(
@@ -37,6 +46,27 @@ async def get_tenant_context(
     x_organization_id: str | None = Header(None, alias="X-Organization-Id"),
     user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+) -> OrganizationId:
+    # This is a base dependency used directly if no specific permission is required.
+    # It acts exactly like a viewer role check for the organization.
+    return await _verify_and_set_tenant(request, x_organization_id, user, session, None)
+
+def require_permission(action: str):
+    async def permission_checker(
+        request: Request,
+        x_organization_id: str | None = Header(None, alias="X-Organization-Id"),
+        user: dict = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
+    ) -> OrganizationId:
+        return await _verify_and_set_tenant(request, x_organization_id, user, session, action)
+    return permission_checker
+
+async def _verify_and_set_tenant(
+    request: Request,
+    x_organization_id: str | None,
+    user: dict,
+    session: AsyncSession,
+    action: str | None,
 ) -> OrganizationId:
     if not x_organization_id:
         raise HTTPException(status_code=400, detail="Missing X-Organization-Id header")
@@ -46,7 +76,6 @@ async def get_tenant_context(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid X-Organization-Id format")
 
-    # Verify user has access to this organization
     stmt = select(RoleBindingModel).where(RoleBindingModel.organization_id == org_uuid, RoleBindingModel.user_id == user["id"])
     result = await session.execute(stmt)
     binding = result.scalar_one_or_none()
@@ -54,9 +83,12 @@ async def get_tenant_context(
     if not binding:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this organization")
 
-    from packages.database.tenant import set_tenant
+    if action:
+        from services.auth.permissions import has_permission
+        if not has_permission(binding.role, action):
+            raise HTTPException(status_code=403, detail=f"Forbidden: Missing permission '{action}'")
 
+    from packages.database.tenant import set_tenant
     org_id = OrganizationId(org_uuid)
     set_tenant(org_id)
-
     return org_id

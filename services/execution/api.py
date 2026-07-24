@@ -15,20 +15,15 @@ from .schemas import ExecutionJobResponse, ExecutionLogResponse, StartExecutionR
 router = APIRouter(prefix="/api/v1/executions", tags=["execution"])
 
 
-from services.auth.dependencies import get_tenant_context as get_tenant_organization_id
-
-
-async def get_db_session(org_id: OrganizationId = Depends(get_tenant_organization_id)):
-    async for session in get_session():
-        yield session
+from services.auth.dependencies import require_permission
 
 
 @router.post("/plans/{plan_id}", response_model=ExecutionJobResponse)
 async def start_execution(
     plan_id: UUID,
     request: StartExecutionRequest,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
-    session: AsyncSession = Depends(get_db_session),
+    organization_id: OrganizationId = Depends(require_permission("plan:approve")),
+    session: AsyncSession = Depends(get_session),
 ):
     plan = await session.get(PlanModel, plan_id)
     if not plan or plan.organization_id != organization_id:
@@ -64,8 +59,8 @@ async def start_execution(
 @router.get("/{job_id}", response_model=ExecutionJobResponse)
 async def get_execution_status(
     job_id: UUID,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
-    session: AsyncSession = Depends(get_db_session),
+    organization_id: OrganizationId = Depends(require_permission("exec:read")),
+    session: AsyncSession = Depends(get_session),
 ):
     job = await session.get(ExecutionJobModel, job_id)
     if not job or job.organization_id != organization_id:
@@ -76,8 +71,8 @@ async def get_execution_status(
 @router.get("/{job_id}/logs", response_model=list[ExecutionLogResponse])
 async def get_execution_logs(
     job_id: UUID,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
-    session: AsyncSession = Depends(get_db_session),
+    organization_id: OrganizationId = Depends(require_permission("exec:read")),
+    session: AsyncSession = Depends(get_session),
 ):
     stmt = (
         select(ExecutionLogModel)
@@ -95,8 +90,8 @@ async def get_execution_logs(
 @router.get("/{job_id}/mutations")
 async def get_execution_mutations(
     job_id: UUID,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
-    session: AsyncSession = Depends(get_db_session),
+    organization_id: OrganizationId = Depends(require_permission("exec:read")),
+    session: AsyncSession = Depends(get_session),
 ):
     stmt = select(MutationModel).where(
         MutationModel.execution_job_id == job_id,

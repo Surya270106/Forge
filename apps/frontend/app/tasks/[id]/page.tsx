@@ -2,7 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import { env } from "../../../config/env";
-import { CheckCircle, Play, Loader2, GitMerge, FileCode, Check, X, RefreshCcw, Activity } from "lucide-react";
+import { CheckCircle, Play, Loader2, GitMerge, FileCode, Check, X, RefreshCcw, Activity, ArrowLeft } from "lucide-react";
+import { AppShell } from "../../components/AppShell";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
+import Link from "next/link";
 
 export default function TaskPage({ params }: { params: { id: string } }) {
   const [plan, setPlan] = useState<any>(null);
@@ -13,6 +18,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [executionStatus, setExecutionStatus] = useState<string | null>(null);
   const [mutations, setMutations] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'plan' | 'execution'>('plan');
 
   const fetchExecution = async (execId: string) => {
     const token = localStorage.getItem("forge_token");
@@ -104,6 +110,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
 
   const handleExecute = async () => {
     setExecuting(true);
+    setActiveTab('execution');
     setLogs(["Starting execution engine..."]);
     try {
       const token = localStorage.getItem("forge_token");
@@ -129,121 +136,151 @@ export default function TaskPage({ params }: { params: { id: string } }) {
     }
   };
 
-  if (loading) return <div className="p-8 animate-pulse text-muted">Loading plan...</div>;
-  if (!plan) return <div className="p-8 text-red-400">Plan not found.</div>;
+  if (loading) return (
+    <AppShell>
+      <div className="flex flex-col items-center justify-center py-24 text-slate-500 gap-3">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-500" /> 
+        <span className="font-medium">Loading plan...</span>
+      </div>
+    </AppShell>
+  );
+
+  if (!plan) return (
+    <AppShell>
+      <div className="p-8 text-red-500 font-medium">Plan not found.</div>
+    </AppShell>
+  );
 
   return (
-    <div className="p-8 max-w-6xl mx-auto flex flex-col gap-8 h-full overflow-hidden">
-      <div className="flex items-start justify-between shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Activity className="w-8 h-8 text-accent" />
-            <h1 className="text-3xl font-bold tracking-tight text-white">Execution Plan</h1>
+    <AppShell>
+      <div className="mb-6">
+        <Link href={`/repositories/${plan.repository_id}`} className="inline-flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-6 text-sm font-medium">
+          <ArrowLeft className="w-4 h-4" /> Back to Repository
+        </Link>
+
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Execution Plan</h1>
+              <Badge variant={plan.status === 'APPROVED' ? 'success' : 'warning'}>
+                {plan.status.replace('_', ' ')}
+              </Badge>
+            </div>
+            <p className="text-slate-600 text-lg">{plan.intent}</p>
           </div>
-          <p className="text-muted">Intent: {plan.intent}</p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${plan.status === 'APPROVED' ? 'bg-blue-900/30 text-blue-400 border border-blue-900/50' : 'bg-yellow-900/30 text-yellow-400 border border-yellow-900/50'}`}>
-          {plan.status}
-        </span>
+
+        <div className="flex border-b border-slate-200 mb-8">
+          <button 
+            onClick={() => setActiveTab('plan')}
+            className={`px-4 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'plan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
+          >
+            Plan Details
+          </button>
+          <button 
+            onClick={() => setActiveTab('execution')}
+            className={`px-4 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'execution' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
+          >
+            Execution Logs
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden min-h-0">
-        
-        {/* Left Column: Plan Details */}
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2">
-          <div className="bg-surface border border-border rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center justify-between">
-              Task Graph
-            </h2>
-            <div className="space-y-4">
-              {plan.nodes?.length > 0 ? plan.nodes.map((node: any, idx: number) => (
-                <div key={node.id} className="border border-border rounded-lg p-4 bg-black relative pl-12">
-                  <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-xs font-bold">
-                    {idx + 1}
+      {activeTab === 'plan' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <Card>
+            <CardHeader>
+              <CardTitle>Task Graph</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {plan.nodes?.length > 0 ? plan.nodes.map((node: any, idx: number) => (
+                  <div key={node.id} className="relative pl-12 border-l-2 border-slate-100 ml-4">
+                    <div className="absolute -left-[17px] top-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold border border-blue-100">
+                      {idx + 1}
+                    </div>
+                    <div className="mb-2">
+                      <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded-md uppercase font-semibold tracking-wider">
+                        {node.action_type}
+                      </span>
+                    </div>
+                    <h3 className="font-semibold text-slate-900 mb-2">
+                      {node.action_type === "edit_file" 
+                        ? `Edit file: ${node.target}` 
+                        : node.action_type === "command"
+                        ? `Run command in ${node.target}`
+                        : `${node.action_type} on ${node.target}`}
+                    </h3>
+                    <div className="text-sm font-mono text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-100 overflow-x-auto whitespace-pre-wrap">
+                      {node.parameters?.changes || node.parameters?.command || JSON.stringify(node.parameters, null, 2)}
+                    </div>
                   </div>
-                  <div className="mb-2">
-                    <span className="text-[10px] bg-accent/20 text-accent border border-accent/30 px-2 py-0.5 rounded uppercase font-semibold tracking-wider">
-                      {node.action_type}
-                    </span>
+                )) : (
+                  <div className="text-sm font-mono text-slate-500 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    {JSON.stringify(plan, null, 2)}
                   </div>
-                  <h3 className="font-medium text-white mb-2">
-                    {node.action_type === "edit_file" 
-                      ? `Edit file: ${node.target}` 
-                      : node.action_type === "command"
-                      ? `Run command in ${node.target}`
-                      : `${node.action_type} on ${node.target}`}
-                  </h3>
-                  <div className="text-sm font-mono text-gray-400 bg-black/50 p-2 rounded-md border border-gray-800 overflow-x-auto whitespace-pre-wrap">
-                    {node.parameters?.changes || node.parameters?.command || JSON.stringify(node.parameters, null, 2)}
-                  </div>
-                </div>
-              )) : (
-                <div className="text-sm font-mono text-gray-400 p-4 bg-black rounded-lg">
-                  {JSON.stringify(plan, null, 2)}
+                )}
+              </div>
+
+              {plan.status === "PENDING_APPROVAL" && (
+                <div className="mt-10 border-t border-slate-100 pt-6 flex justify-end gap-4">
+                  <Button variant="ghost">Reject</Button>
+                  <Button 
+                    onClick={handleApprove}
+                    disabled={approving}
+                  >
+                    {approving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                    Approve Plan
+                  </Button>
                 </div>
               )}
-            </div>
-
-            {plan.status === "PENDING_APPROVAL" && (
-              <div className="mt-8 border-t border-border pt-6 flex justify-end gap-3">
-                <button className="px-4 py-2 text-muted hover:text-white transition-colors">
-                  Reject
-                </button>
-                <button 
-                  onClick={handleApprove}
-                  disabled={approving}
-                  className="bg-accent hover:bg-accent/90 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
-                >
-                  {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  Approve Plan
-                </button>
-              </div>
-            )}
-            
-            {plan.status === "APPROVED" && executionStatus === null && (
-              <div className="mt-8 border-t border-border pt-6 flex justify-end">
-                <button 
-                  onClick={handleExecute}
-                  disabled={executing}
-                  className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
-                >
-                  <Play className="w-4 h-4" /> Start Execution
-                </button>
-              </div>
-            )}
-          </div>
+              
+              {plan.status === "APPROVED" && executionStatus === null && (
+                <div className="mt-10 border-t border-slate-100 pt-6 flex justify-end">
+                  <Button 
+                    onClick={handleExecute}
+                    disabled={executing}
+                    className="bg-green-600 hover:bg-green-700 shadow-green-600/20"
+                  >
+                    <Play className="w-4 h-4 mr-2" /> Start Execution
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
+      )}
 
-        {/* Right Column: Execution */}
-        <div className="flex flex-col gap-6 overflow-hidden">
-          <div className="bg-surface border border-border rounded-xl flex flex-col h-full overflow-hidden">
-            <div className="p-4 border-b border-border bg-black/50 shrink-0 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                <FileCode className="w-4 h-4 text-accent" /> Execution Logs
+      {activeTab === 'execution' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <Card className="overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <FileCode className="w-4 h-4 text-blue-500" /> Terminal Output
               </h2>
               {executionStatus && (
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase ${executionStatus === 'COMPLETED' ? 'bg-green-900/30 text-green-400' : 'bg-blue-900/30 text-blue-400'}`}>
+                <Badge variant={executionStatus === 'COMPLETED' ? 'success' : 'default'}>
                   {executionStatus}
-                </span>
+                </Badge>
               )}
             </div>
             
-            <div className="p-4 flex-1 bg-black overflow-y-auto font-mono text-sm leading-relaxed">
+            <div className="p-6 flex-1 bg-slate-900 overflow-y-auto font-mono text-sm leading-relaxed">
               {logs.length === 0 ? (
-                <div className="text-gray-600 h-full flex items-center justify-center italic">
+                <div className="text-slate-500 h-full flex items-center justify-center italic">
                   Awaiting execution...
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3 text-gray-300">
-                      <span className="text-gray-600 select-none shrink-0">{String(i+1).padStart(2, '0')}</span>
-                      <span className={log.includes("passed") || log.includes("completed") ? "text-green-400" : ""}>{log}</span>
+                    <div key={i} className="flex gap-4 text-slate-300">
+                      <span className="text-slate-600 select-none shrink-0 w-6 text-right">{String(i+1).padStart(2, '0')}</span>
+                      <span className={log.includes("passed") || log.includes("completed") || log.includes("Successfully") ? "text-green-400" : ""}>{log}</span>
                     </div>
                   ))}
                   {executing && (
-                    <div className="flex gap-3 text-accent animate-pulse mt-2">
-                      <span className="text-gray-600 select-none shrink-0">--</span>
+                    <div className="flex gap-4 text-blue-400 animate-pulse mt-2">
+                      <span className="text-slate-600 select-none shrink-0 w-6 text-right">--</span>
                       <span>Processing...</span>
                     </div>
                   )}
@@ -252,21 +289,24 @@ export default function TaskPage({ params }: { params: { id: string } }) {
             </div>
             
             {executionStatus === "COMPLETED" && (
-              <div className="p-4 border-t border-border bg-black/50 shrink-0 flex flex-col gap-4">
-                <span className="text-sm font-medium text-white flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-400" /> All mutations applied successfully.
-                </span>
+              <div className="p-6 border-t border-slate-100 bg-white shrink-0 flex flex-col gap-6">
+                <div className="flex items-center gap-3 text-green-600 font-medium">
+                  <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  All mutations applied successfully.
+                </div>
                 
                 {mutations.length > 0 && (
-                  <div className="space-y-3 mt-2">
-                    <h3 className="text-xs font-semibold uppercase text-muted tracking-wider">File Changes</h3>
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-wider">File Changes</h3>
                     {mutations.map(m => (
-                      <div key={m.id} className="border border-border rounded overflow-hidden">
-                        <div className="bg-surface px-3 py-1 text-xs font-medium text-white flex justify-between">
-                          <span>{m.file_path}</span>
-                          <span className="text-muted">{m.mutation_type}</span>
+                      <div key={m.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 flex justify-between border-b border-slate-200">
+                          <span className="font-mono">{m.file_path}</span>
+                          <Badge variant="outline" className="text-xs bg-white">{m.mutation_type}</Badge>
                         </div>
-                        <div className="bg-black p-3 text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre">
+                        <div className="bg-slate-900 p-4 text-xs font-mono text-slate-300 overflow-x-auto whitespace-pre">
                           {m.diff_hunk}
                         </div>
                       </div>
@@ -274,17 +314,16 @@ export default function TaskPage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 
-                <div className="flex justify-end pt-2 border-t border-border mt-2">
-                  <button className="bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                <div className="flex justify-end pt-4">
+                  <Button variant="secondary" className="gap-2">
                     <GitMerge className="w-4 h-4" /> Create Pull Request
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         </div>
-
-      </div>
-    </div>
+      )}
+    </AppShell>
   );
 }

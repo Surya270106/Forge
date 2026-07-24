@@ -2,14 +2,19 @@
 
 import React, { useEffect, useState } from "react";
 import { env } from "../../config/env";
-import { Github, Loader2, Plus, ArrowLeft, Lock, Unlock } from "lucide-react";
+import { Github, Loader2, Plus, ArrowLeft, Lock, Unlock, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AppShell } from "../components/AppShell";
+import { Button } from "../components/ui/button";
+import { Card, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 
 export default function RepositoriesPage() {
   const [githubRepos, setGithubRepos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -26,7 +31,6 @@ export default function RepositoriesPage() {
           const data = await res.json();
           setGithubRepos(data.repositories);
         } else if (res.status === 401 || res.status === 400) {
-          // Token invalid or missing, redirect to login
           router.push('/login');
         }
       } catch (err) {
@@ -67,7 +71,6 @@ export default function RepositoriesPage() {
       });
       
       if (res.ok) {
-        // Navigate back to dashboard where it should appear
         router.push('/');
       } else {
         const err = await res.json();
@@ -81,63 +84,91 @@ export default function RepositoriesPage() {
     }
   };
 
+  const filteredRepos = githubRepos.filter(repo => 
+    repo.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    repo.owner.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <Link href="/" className="inline-flex items-center gap-2 text-muted hover:text-white transition-colors mb-6 text-sm font-medium">
-        <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-      </Link>
-      
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-white mb-2 flex items-center gap-3">
-          <Github className="w-8 h-8" /> Import from GitHub
-        </h1>
-        <p className="text-muted">Select a repository from your GitHub account to import into Forge AI.</p>
+    <AppShell>
+      <div className="mb-6">
+        <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-6 text-sm font-medium">
+          <ArrowLeft className="w-4 h-4" /> Back to Dashboard
+        </Link>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900 mb-2 flex items-center gap-3">
+              <Github className="w-8 h-8 text-slate-700" /> Import from GitHub
+            </h1>
+            <p className="text-slate-500">Select a repository from your GitHub account to import into Forge AI.</p>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Search repositories..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+          </div>
+        </div>
       </div>
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-accent" /> 
-          <p>Fetching your repositories from GitHub...</p>
+        <div className="flex flex-col items-center justify-center py-24 text-slate-500 gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500" /> 
+          <p className="font-medium">Fetching your repositories from GitHub...</p>
         </div>
       ) : githubRepos.length === 0 ? (
-        <div className="bg-surface border border-border border-dashed rounded-xl p-12 text-center">
-          <p className="text-muted">No repositories found in your GitHub account.</p>
-        </div>
+        <Card className="text-center py-16">
+          <CardContent>
+            <p className="text-slate-500">No repositories found in your GitHub account.</p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {githubRepos.map(repo => (
-            <div key={repo.name} className="bg-surface border border-border rounded-xl p-5 flex items-center justify-between hover:border-accent/30 transition-colors">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h3 className="font-medium text-white text-lg">{repo.owner}/{repo.name}</h3>
-                  {repo.is_private ? (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider bg-gray-800 text-gray-400 flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Private
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider bg-gray-800 text-gray-400 flex items-center gap-1">
-                      <Unlock className="w-3 h-3" /> Public
-                    </span>
-                  )}
+          {filteredRepos.map(repo => (
+            <Card key={repo.name} className="hover:border-blue-200 hover:shadow-md transition-all duration-200">
+              <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                    <h3 className="font-semibold text-slate-900 text-lg">{repo.owner}/{repo.name}</h3>
+                    {repo.is_private ? (
+                      <Badge variant="outline" className="gap-1 bg-slate-50">
+                        <Lock className="w-3 h-3" /> Private
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 bg-slate-50">
+                        <Unlock className="w-3 h-3" /> Public
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500">{repo.description || "No description provided."}</p>
                 </div>
-                <p className="text-sm text-muted">{repo.description || "No description provided."}</p>
-              </div>
-              
-              <button
-                onClick={() => handleImport(repo)}
-                disabled={importing === repo.name}
-                className="bg-white text-black hover:bg-gray-200 disabled:opacity-50 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                {importing === repo.name ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Importing...</>
-                ) : (
-                  <><Plus className="w-4 h-4" /> Import</>
-                )}
-              </button>
-            </div>
+                
+                <Button
+                  onClick={() => handleImport(repo)}
+                  disabled={importing === repo.name}
+                  variant={importing === repo.name ? "secondary" : "primary"}
+                  className="w-full md:w-auto min-w-[120px]"
+                >
+                  {importing === repo.name ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Importing...</>
+                  ) : (
+                    <><Plus className="w-4 h-4" /> Import</>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
           ))}
+          {filteredRepos.length === 0 && (
+             <div className="text-center py-12 text-slate-500">
+               No repositories match your search.
+             </div>
+          )}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

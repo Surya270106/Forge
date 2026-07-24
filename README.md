@@ -1,197 +1,159 @@
-<div align="center">
-  <img src="https://via.placeholder.com/150?text=Forge+AI" alt="Forge AI Logo" width="120" height="120" />
-  <h1>Forge AI</h1>
-  <p><strong>The Autonomous AI Software Engineering Platform</strong></p>
-  <p>
-    <a href="#features">Features</a> •
-    <a href="#architecture">Architecture</a> •
-    <a href="#workflow">Workflow</a> •
-    <a href="#getting-started">Getting Started</a>
-  </p>
-</div>
+# Forge AI
 
----
+Forge AI is a distributed, agentic continuous integration and continuous deployment (CI/CD) system designed to automate software engineering tasks. It securely executes autonomous AI agents within Docker-isolated environments to review code, generate patches, verify builds, and create pull requests.
 
-**Forge AI** is an enterprise-grade AI-assisted software engineering platform that securely manages autonomous coding workflows. Designed for product-minded teams, Forge transforms raw intents into fully-executed, verified code changes. It integrates directly with GitHub, analyzes massive codebases securely, and safely applies modifications through an isolated Docker Sandbox.
+## System Architecture
 
-## Features
-
-- **Real GitHub Integration**: Securely connect via OAuth and import your repositories (Public or Private) directly.
-- **AI Planning Engine**: Leverages an AI Context Engine to dynamically construct a Directed Acyclic Graph (DAG) of execution tasks based on natural language intent.
-- **Bring Your Own Provider**: Configure your workspace with your preferred AI provider (`OpenAI`, `Anthropic`) and model (`gpt-4o`, `claude-3-5-sonnet`).
-- **Human-in-the-loop**: Full execution transparency. Review, edit, and approve AI-generated plans before any code is mutated.
-- **Docker-Isolated Execution**: Tasks are run safely within a secure Docker Sandbox preventing host machine access or network tampering.
-- **Live Event Streaming**: Watch your autonomous agent provision environments, clone repositories, and apply mutations in real-time.
-
----
-
-## Architecture
-
-Forge AI is designed around an event-driven, decoupled architecture separating the state management (API) from resource-heavy execution (Workers). 
+The Forge AI architecture is composed of several independent services communicating asynchronously to ensure reliability, fault tolerance, and secure execution.
 
 ```mermaid
 graph TD
-    subgraph Frontend [Client]
-        UI[Next.js App Router]
+    subgraph Frontend
+        A[Next.js Dashboard]
     end
 
-    subgraph Backend [FastAPI Services]
-        API[Gateway API]
-        Auth[Auth & Identity]
-        Plan[Planning Engine]
-        Context[Context Engine]
-        Import[Repository Import]
+    subgraph API Services
+        B[API Gateway / FastAPI]
+        C[Context Engine]
+        D[Planning Engine]
+        E[Execution Engine]
+        F[Verification Engine]
+        G[Patch Engine]
     end
+
+    subgraph Data Layer
+        H[(PostgreSQL)]
+        I[(Redis Streams)]
+    end
+
+    subgraph Sandboxes
+        J[DockerSandbox Workspace]
+    end
+
+    A --> B
+    B --> H
+    B --> I
     
-    subgraph Storage [State & Brokers]
-        PG[(PostgreSQL)]
-        Redis[Redis Streams]
-    end
-
-    subgraph Workers [Execution Agents]
-        WorkerPool[Worker Outbox Relay]
-        ExecWorker[Execution Worker]
-        ImportWorker[Import Worker]
-    end
-
-    subgraph Sandbox [Isolation]
-        DockerSandbox[Docker Container]
-    end
-
-    subgraph External [Third-Party]
-        GitHub[GitHub API]
-        LLM[OpenAI / Anthropic]
-    end
-
-    %% Connections
-    UI -- "REST (JWT)" --> API
-    API --> Auth & Plan & Context & Import
-    API -- "CRUD" --> PG
-    API -- "Outbox Event" --> Redis
+    I --> C
+    I --> D
+    I --> E
     
-    Redis -- "Consume" --> WorkerPool
-    WorkerPool --> ExecWorker & ImportWorker
+    C --> H
+    D --> H
     
-    ExecWorker -- "Run Task DAG" --> DockerSandbox
-    Context -- "Assemble Prompt" --> LLM
-    Import -- "OAuth / Fetch" --> GitHub
+    E --> J
+    E --> H
+    E --> I
+    
+    I --> F
+    F --> J
+    F --> H
+    
+    F --> G
+    G --> H
 ```
 
-### The AI Planning Workflow
+## Lifecycle Flow
 
-The Planning Engine and Context Engine work in tandem to construct deterministic DAGs.
+Forge AI manages a complete lifecycle for each task. The system processes incoming requests, plans an execution graph, mutates the codebase safely, verifies the changes, and orchestrates the final patch submission.
 
 ```mermaid
-sequenceDiagram
-    participant User
-    participant API
-    participant PlanningEngine
-    participant ContextEngine
-    participant LLM
-
-    User->>API: Submit Intent ("Fix memory leak in parser")
-    API->>PlanningEngine: Create Plan (Status: DRAFT)
-    PlanningEngine->>ContextEngine: Request DAG Generation
-    ContextEngine->>ContextEngine: Assemble Context (BM25 / Tree-sitter)
-    ContextEngine->>LLM: Render Prompt & Invoke LLM
-    LLM-->>ContextEngine: Return JSON Task DAG
-    ContextEngine-->>PlanningEngine: Provide Nodes & Edges
-    PlanningEngine->>API: Update Plan (Status: PENDING_APPROVAL)
-    API-->>User: Present Task Graph for Approval
+stateDiagram-v2
+    [*] --> RepositoryImported
+    RepositoryImported --> PlanGenerated : Trigger Task
+    
+    state Execution Phase {
+        PlanGenerated --> Executing
+        Executing --> Executing : Apply Mutations
+        Executing --> ExecutionCompleted
+    }
+    
+    state Verification Phase {
+        ExecutionCompleted --> Verifying
+        Verifying --> Passed
+        Verifying --> Failed
+        Failed --> Executing : AI Repair Loop
+    }
+    
+    state Patch Lifecycle {
+        Passed --> PatchGenerated
+        PatchGenerated --> UnderReview
+        UnderReview --> Accepted
+        Accepted --> BranchCreated
+        BranchCreated --> PRSubmitted
+    }
+    
+    PRSubmitted --> [*]
 ```
 
-### Docker-Isolated Execution
+## Core Components
 
-Once approved, tasks run within an ephemeral, secure sandbox.
+### 1. Planning Engine
+The Planning Engine analyzes the incoming intent and codebase context to construct a Directed Acyclic Graph (DAG) of actionable tasks. It ensures dependencies are respected before execution begins.
 
-```mermaid
-flowchart LR
-    Start([Approved Plan]) --> Worker[Execution Worker]
-    Worker --> Clone[Clone Repo to Volume]
-    Clone --> Container[Provision Docker Container]
-    Container -- "Mount Volume" --> Exec[Run AST/Shell Tasks]
-    Exec -- "Success" --> Diff[Generate Diff Mutation]
-    Exec -- "Failure" --> Cleanup[Destroy Container & Fail]
-    Diff --> Commit[Record & Present PR]
-```
+### 2. Execution Engine
+The Execution Engine traverses the planned DAG. For each node, it spawns a `DockerSandbox` environment. The sandbox isolates the execution, preventing any unauthorized network access or host system modifications. All file changes are captured as granular diffs (`MutationModel`).
 
----
+### 3. Verification Engine
+Once execution completes, the Verification Engine runs configured checks (linting, type-checking, tests, build) inside the isolated sandbox. If any checks fail, a Repair Loop is triggered, feeding the diagnostic logs back into the AI context for correction.
 
-## Getting Started (Local Development)
+### 4. Patch Engine
+Upon successful verification, the Patch Engine aggregates all mutations into a single `PatchModel`. It handles the Git lifecycle: checking out a branch, applying the unified diff, committing, and pushing the changes to the upstream repository.
+
+## Development Setup
 
 ### Prerequisites
-- Python 3.12+ (Use `uv` for lightning-fast dependency management)
-- Node.js v20+ 
-- PostgreSQL 15+
-- Redis 7+
-- Docker Engine (Required for Execution Sandboxes)
+- Python 3.12+
+- Node.js 20+
+- Docker (for isolated sandbox execution)
+- PostgreSQL
+- Redis
 
-### 1. Environment Setup
+### Installation
 
-Clone the repository and set up your environment variables.
+1. Clone the repository and configure the environment:
 ```bash
-git clone https://github.com/your-org/Forge.git
+git clone https://github.com/Surya270106/Forge.git
 cd Forge
 cp .env.example .env
 ```
-Make sure to add your `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` to the `.env` file to enable the GitHub OAuth flow.
 
-### 2. Install Dependencies
-
+2. Initialize the backend:
 ```bash
-# Install Python Backend
-uv sync --frozen --all-extras
-
-# Install Next.js Frontend
-cd apps/frontend
-npm ci
+uv sync
+uv run alembic upgrade head
 ```
 
-### 3. Initialize Databases
-
-Ensure PostgreSQL and Redis are running locally.
-```bash
-# Run Alembic migrations and seed base roles
-python scripts/database/reset_db.py --confirm
-```
-
-### 4. Run the Stack
-
-You will need three terminal instances to run the full stack:
-
-**Terminal 1: FastAPI Backend**
-```bash
-uv run uvicorn apps.api.main:app --port 8000 --reload
-```
-
-**Terminal 2: Redis Worker (Execution Engine)**
-```bash
-uv run python -m apps.worker.main
-```
-
-**Terminal 3: Next.js Frontend**
+3. Initialize the frontend:
 ```bash
 cd apps/frontend
+npm install
 npm run dev
 ```
 
-Visit `http://localhost:3000` to log in via GitHub and start building!
+### Infrastructure
 
----
+The project includes a `docker-compose.yml` to spin up local instances of PostgreSQL and Redis:
 
-## Security & Limitations
+```bash
+docker compose up -d
+```
 
-- **Sandboxing**: `DockerSandbox` is used for isolation. The container is stripped of capabilities and runs in a separate network bridge.
-- **Provider Keys**: OpenAI / Anthropic API keys are strictly maintained in the encrypted PostgreSQL `OrganizationModel.provider_config` column and never exposed to the frontend browser context.
-- **Local Workspaces**: Local workspace directories are isolated by `organization_id` and `repository_id` to prevent cross-tenant path traversal.
+## Configuration
 
-## Roadmap
-- [x] Full Internal Alpha
-- [x] Docker-Isolated Alpha
-- [x] Real GitHub Connection
-- [x] BYOK AI Provider Integration
-- [ ] Comprehensive Tree-sitter Codebase Indexing (In Progress)
-- [ ] Firecracker MicroVM Support (Deferred)
+Forge AI supports repository-specific configuration via a `forge.yaml` file located in the root of the target repository. This configuration defines the verification steps, including formatters, linters, and test runners.
 
----
-*Forge AI is built by product engineers for product engineers.*
+## Security
+
+Security is a foundational tenet of Forge AI. 
+- All AI-generated code is executed within ephemeral, network-disabled Docker containers (`DockerSandbox`).
+- Database access is scoped using Row-Level Security (RLS) to ensure strict tenant isolation.
+- Interactions with external APIs (like GitHub) use least-privilege OAuth tokens scoped precisely to the target repository.
+
+## Contribution
+
+Code contributions are managed via Pull Requests. Ensure all new code is covered by tests and passes the existing linting rules (`ruff` for Python, `eslint` for TypeScript).
+
+## License
+
+Copyright (c) 2026 Surya270106. All rights reserved.

@@ -13,6 +13,7 @@ packages/database/base.py
 packages/database/engine.py
 packages/database/tenant.py
 packages/database/models/__init__.py
+packages/database/models/audit.py
 packages/database/models/auth.py
 packages/database/models/context.py
 packages/database/models/execution.py
@@ -42,6 +43,9 @@ packages/shared/logging.py
 packages/shared/pagination.py
 packages/shared/result.py
 services/__init__.py
+services/audit/api.py
+services/audit/schemas.py
+services/audit/worker.py
 services/auth/api.py
 services/auth/dependencies.py
 services/auth/jwt.py
@@ -90,6 +94,7 @@ services/repository_memory/service.py
 services/verification/api.py
 services/verification/events.py
 services/verification/registry.py
+services/verification/repair_worker.py
 services/verification/schemas.py
 services/verification/service.py
 tests/test_rfc002_memory.py
@@ -99,3 +104,5 @@ tests/test_rfc005_verification.py
 tests/test_rfc006_context.py
 tests/test_rfc009_plugin.py
 tests/test_rfc010_tenant.py
+tests/test_rfc011_audit.py
+tests/test_rfc011_revisions.py

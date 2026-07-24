@@ -1,3 +1,4 @@
+from .audit import AuditLogModel
 from .auth import (
     OrganizationModel,
     RoleBindingModel,
@@ -88,4 +89,5 @@ __all__ = [
     "OrganizationModel",
     "UserModel",
     "RoleBindingModel",
+    "AuditLogModel",
 ]

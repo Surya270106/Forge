@@ -60,6 +60,9 @@ async def run_worker():
     from services.verification.repair_worker import handle_repair_attempted
     event_worker.register_handler("verification.repair_attempted", handle_repair_attempted)
 
+    from services.audit.worker import handle_audit_event
+    event_worker.register_global_handler(handle_audit_event)
+
     from packages.events.outbox import OutboxRelay
 
     relay = OutboxRelay(session_maker, redis_client)

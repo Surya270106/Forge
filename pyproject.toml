@@ -47,7 +47,7 @@ dev = [
 target-version = "py312"
 line-length = 150
 lint.select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
-lint.ignore = ["E501", "F841", "E402", "E712", "E741", "N806", "B008", "F401", "SIM105", "TC003", "N999", "UP", "B", "SIM", "TCH", "N", "F403", "W291"]
+lint.ignore = ["E501", "B008", "E402", "SIM105", "N806", "N999", "TC003", "B904", "F403", "UP007", "SIM108"]
 
 [tool.black]
 line-length = 100

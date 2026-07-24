@@ -25,7 +25,7 @@ from typing import cast
 
 
 def generate_id() -> UUID:
-    return cast(UUID, uuid7())
+    return cast("UUID", uuid7())
 
 
 def generate_correlation_id() -> CorrelationId:

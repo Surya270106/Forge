@@ -1,5 +1,4 @@
 import os
-from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -9,29 +8,29 @@ class VerifierDefinition(BaseModel):
     identifier: str
     display_name: str
     category: str
-    command: List[str]
-    arguments: List[str] = Field(default_factory=list)
+    command: list[str]
+    arguments: list[str] = Field(default_factory=list)
     working_directory: str = "."
     timeout: int = 300
     blocking: bool = True
     enabled: bool = True
-    supported_languages: List[str] = Field(default_factory=list)
+    supported_languages: list[str] = Field(default_factory=list)
     diagnostic_parser: str = "default"
 
 
 class ForgeYamlVerification(BaseModel):
-    format: Optional[List[VerifierDefinition]] = None
-    lint: Optional[List[VerifierDefinition]] = None
-    typecheck: Optional[List[VerifierDefinition]] = None
-    test: Optional[List[VerifierDefinition]] = None
-    build: Optional[List[VerifierDefinition]] = None
-    security: Optional[List[VerifierDefinition]] = None
+    format: list[VerifierDefinition] | None = None
+    lint: list[VerifierDefinition] | None = None
+    typecheck: list[VerifierDefinition] | None = None
+    test: list[VerifierDefinition] | None = None
+    build: list[VerifierDefinition] | None = None
+    security: list[VerifierDefinition] | None = None
 
 
 class ForgeYamlConfig(BaseModel):
     version: int = 1
-    languages: List[str] = Field(default_factory=list)
-    verification: Optional[ForgeYamlVerification] = None
+    languages: list[str] = Field(default_factory=list)
+    verification: ForgeYamlVerification | None = None
 
 
 class VerificationRegistry:
@@ -39,18 +38,18 @@ class VerificationRegistry:
         self.workspace_dir = workspace_dir
         self.config = self._load_forge_yaml()
 
-    def _load_forge_yaml(self) -> Optional[ForgeYamlConfig]:
+    def _load_forge_yaml(self) -> ForgeYamlConfig | None:
         yaml_path = os.path.join(self.workspace_dir, "forge.yaml")
         if not os.path.exists(yaml_path):
             return None
         try:
-            with open(yaml_path, "r") as f:
+            with open(yaml_path) as f:
                 data = yaml.safe_load(f)
                 return ForgeYamlConfig(**data)
         except Exception:
             return None
 
-    def get_verifiers(self) -> List[VerifierDefinition]:
+    def get_verifiers(self) -> list[VerifierDefinition]:
         if not self.config or not self.config.verification:
             # Return some defaults if no forge.yaml is present
             return [

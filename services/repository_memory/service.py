@@ -175,8 +175,8 @@ class IndexingCoordinator:
                 try:
                     tree = adapter.parse(content)
                     symbols = adapter.extract_symbols(tree, content)
-                    deps = adapter.extract_dependencies(tree, content)
-                    calls = adapter.extract_calls(tree, content)
+                    adapter.extract_dependencies(tree, content)
+                    adapter.extract_calls(tree, content)
 
                     for sym in symbols:
                         self.session.add(

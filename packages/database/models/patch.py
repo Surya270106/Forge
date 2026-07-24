@@ -1,15 +1,15 @@
 from datetime import datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class PatchStatus(str, PyEnum):
+class PatchStatus(StrEnum):
     GENERATED = "GENERATED"
     UNDER_REVIEW = "UNDER_REVIEW"
     ACCEPTED = "ACCEPTED"
@@ -31,7 +31,7 @@ class PatchModel(IdMixin, TimestampMixin, Base):
 
     organization_id: Mapped[UUID] = mapped_column(nullable=False)
     repository_id: Mapped[UUID] = mapped_column(ForeignKey("repositories.id"), nullable=False)
-    
+
     # The execution that generated this patch
     execution_job_id: Mapped[UUID] = mapped_column(ForeignKey("execution_jobs.id"), nullable=False)
     task_id: Mapped[UUID | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)

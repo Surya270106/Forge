@@ -1,16 +1,16 @@
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ErrorSeverity(str, Enum):
+class ErrorSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     VALIDATION = "validation"
     AUTHENTICATION = "authentication"
     AUTHORIZATION = "authorization"

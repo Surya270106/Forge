@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ class PaginationParams(BaseModel):
         return (self.page - 1) * self.page_size
 
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse[T](BaseModel):
     items: Sequence[T]
     total: int
     page: int

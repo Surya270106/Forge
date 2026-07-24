@@ -1,4 +1,4 @@
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Enum as SAEnum
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class ModelProvider(str, PyEnum):
+class ModelProvider(StrEnum):
     ANTHROPIC = "ANTHROPIC"
     OPENAI = "OPENAI"
     GOOGLE = "GOOGLE"

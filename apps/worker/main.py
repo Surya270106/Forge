@@ -1,7 +1,6 @@
 import asyncio
 import os
 import signal
-import sys
 from uuid import UUID
 
 import redis.asyncio as redis

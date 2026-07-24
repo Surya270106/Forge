@@ -28,9 +28,8 @@ if failed_step:
     req = urllib.request.Request(f"https://api.github.com/repos/Surya270106/Forge/actions/runs/{run_id}/logs")
     req.add_header("User-Agent", "Mozilla/5.0")
     try:
-        with urllib.request.urlopen(req) as response:
-            with open("logs.zip", "wb") as f:
-                f.write(response.read())
+        with urllib.request.urlopen(req) as response, open("logs.zip", "wb") as f:
+            f.write(response.read())
         with zipfile.ZipFile("logs.zip", "r") as z:
             for name in z.namelist():
                 if failed_step in name:

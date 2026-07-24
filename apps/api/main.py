@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services.context_engine.api import router as context_router
 from services.execution.api import router as execution_router
-from services.patch.api import router as patch_router
 from services.planning.api import router as planning_router
 from services.repository_import.api import router as import_router
 from services.repository_memory.api import router as memory_router

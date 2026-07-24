@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class ExecutionStatus(str, PyEnum):
+class ExecutionStatus(StrEnum):
     PENDING = "PENDING"
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"

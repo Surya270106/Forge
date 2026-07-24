@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,7 +109,7 @@ async def get_workspaces(user: dict = Depends(get_current_user), session: AsyncS
         select(OrganizationModel, RoleBindingModel.role)
         .join(RoleBindingModel, OrganizationModel.id == RoleBindingModel.organization_id)
         .where(RoleBindingModel.user_id == user["id"])
-        .where(OrganizationModel.is_active == True)
+        .where(OrganizationModel.is_active)
     )
     result = await session.execute(stmt)
 

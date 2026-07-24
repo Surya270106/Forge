@@ -15,10 +15,7 @@ def configure_logging(log_level: str = "INFO", json_output: bool = True) -> None
         structlog.processors.UnicodeDecoder(),
     ]
 
-    if json_output:
-        renderer = structlog.processors.JSONRenderer()
-    else:
-        renderer = structlog.dev.ConsoleRenderer()
+    renderer = structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
 
     structlog.configure(
         processors=[

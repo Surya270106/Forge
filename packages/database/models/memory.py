@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import (
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class IndexingStatus(str, PyEnum):
+class IndexingStatus(StrEnum):
     PENDING = "PENDING"
     QUEUED = "QUEUED"
     SCANNING = "SCANNING"

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Union
+from typing import TYPE_CHECKING, TypeVar, Union
 
-from .errors import ForgeError
+if TYPE_CHECKING:
+    from .errors import ForgeError
 
 T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class Success(Generic[T]):
+class Success[T]:
     value: T
 
     @property
@@ -37,7 +38,7 @@ class Failure:
 Result = Union[Success[T], Failure]
 
 
-def ok(value: T) -> Success[T]:
+def ok[T](value: T) -> Success[T]:
     return Success(value=value)
 
 

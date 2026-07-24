@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..base import Base, IdMixin, TimestampMixin
 
 
-class RepositoryStatus(str, enum.Enum):
+class RepositoryStatus(enum.StrEnum):
     PENDING = "PENDING"
     IMPORTING = "IMPORTING"
     READY = "READY"

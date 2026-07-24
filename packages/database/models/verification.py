@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class VerificationStatus(str, PyEnum):
+class VerificationStatus(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     PASSED = "PASSED"
@@ -83,7 +83,7 @@ class VerificationResultModel(IdMixin, TimestampMixin, Base):
     attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
-class RepairAttemptStatus(str, PyEnum):
+class RepairAttemptStatus(StrEnum):
     NOT_ELIGIBLE = "NOT_ELIGIBLE"
     ELIGIBLE = "ELIGIBLE"
     QUEUED = "QUEUED"

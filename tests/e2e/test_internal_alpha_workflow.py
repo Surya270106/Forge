@@ -22,7 +22,7 @@ async def test_e2e_alpha_workflow():
         req_data = {"clone_url": "file:///tmp/dummy", "owner": "dummy-owner", "name": unique_name}
         resp = await client.post("/api/v1/repositories/import", json=req_data)
         assert resp.status_code == 202, f"Import failed: {resp.text}"
-        import_id = resp.json()["import_job_id"]
+        resp.json()["import_job_id"]
         repo_id = resp.json()["repository_id"]
 
         # Step 3: Trigger memory indexing (RFC-002)

@@ -41,8 +41,8 @@ from .repository_file import RepositoryFileModel
 from .repository_language import RepositoryLanguageModel
 from .repository_manifest import RepositoryManifestModel
 from .verification import (
-    DiagnosticType,
     RepairAttemptModel,
+    RepairAttemptStatus,
     VerificationJobModel,
     VerificationResultModel,
     VerificationStatus,
@@ -77,7 +77,7 @@ __all__ = [
     "ExecutionLogModel",
     "MutationModel",
     "VerificationStatus",
-    "DiagnosticType",
+    "RepairAttemptStatus",
     "VerificationJobModel",
     "VerificationResultModel",
     "RepairAttemptModel",

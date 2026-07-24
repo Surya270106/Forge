@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -15,23 +15,23 @@ class VerificationStatus(str, PyEnum):
     RUNNING = "RUNNING"
     PASSED = "PASSED"
     FAILED = "FAILED"
-    ERROR = "ERROR"
-
-
-class DiagnosticType(str, PyEnum):
-    LINT = "LINT"
-    TYPE_CHECK = "TYPE_CHECK"
-    UNIT_TEST = "UNIT_TEST"
-    BUILD = "BUILD"
-    SECURITY = "SECURITY"
+    WARNING = "WARNING"
+    SKIPPED = "SKIPPED"
+    BLOCKED = "BLOCKED"
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    CANCELLED = "CANCELLED"
+    TIMED_OUT = "TIMED_OUT"
 
 
 class VerificationJobModel(IdMixin, TimestampMixin, Base):
+    """
+    Groups a set of verification results for a given execution attempt.
+    """
+
     __tablename__ = "verification_jobs"
     __table_args__ = (
         Index("ix_verif_jobs_repo_org", "repository_id", "organization_id"),
         Index("ix_verif_jobs_exec", "execution_job_id"),
-        Index("ix_verif_jobs_status", "status"),
     )
 
     organization_id: Mapped[UUID] = mapped_column(nullable=False)
@@ -39,9 +39,7 @@ class VerificationJobModel(IdMixin, TimestampMixin, Base):
     execution_job_id: Mapped[UUID] = mapped_column(ForeignKey("execution_jobs.id"), nullable=False)
 
     status: Mapped[VerificationStatus] = mapped_column(
-        SAEnum(VerificationStatus, name="verification_status"),
-        default=VerificationStatus.PENDING,
-        nullable=False,
+        SAEnum(VerificationStatus, name="verification_status"), nullable=False, default=VerificationStatus.PENDING
     )
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -49,21 +47,53 @@ class VerificationJobModel(IdMixin, TimestampMixin, Base):
 
 
 class VerificationResultModel(IdMixin, TimestampMixin, Base):
+    """
+    A normalized verification result for a single verifier run (e.g. format, lint, typecheck).
+    """
+
     __tablename__ = "verification_results"
     __table_args__ = (
         Index("ix_verif_res_job", "verification_job_id"),
-        Index("ix_verif_res_type", "diagnostic_type"),
+        Index("ix_verif_res_status", "status"),
     )
 
     organization_id: Mapped[UUID] = mapped_column(nullable=False)
     verification_job_id: Mapped[UUID] = mapped_column(ForeignKey("verification_jobs.id"), nullable=False)
+    execution_id: Mapped[UUID] = mapped_column(ForeignKey("execution_jobs.id"), nullable=False)
 
-    diagnostic_type: Mapped[DiagnosticType] = mapped_column(SAEnum(DiagnosticType, name="diagnostic_type"), nullable=False)
-    is_passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    output: Mapped[str] = mapped_column(Text, nullable=False)
+    verifier: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[VerificationStatus] = mapped_column(
+        SAEnum(VerificationStatus, name="verification_result_status"),
+        nullable=False,
+    )
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Store parsed diagnostics like line numbers, error codes, file paths
-    parsed_diagnostics: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stdout_truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    stderr_truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    diagnostics: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
+
+    blocking: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class RepairAttemptStatus(str, PyEnum):
+    NOT_ELIGIBLE = "NOT_ELIGIBLE"
+    ELIGIBLE = "ELIGIBLE"
+    QUEUED = "QUEUED"
+    PLANNING = "PLANNING"
+    EXECUTING = "EXECUTING"
+    REVERIFYING = "REVERIFYING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    EXHAUSTED = "EXHAUSTED"
+    CANCELLED = "CANCELLED"
 
 
 class RepairAttemptModel(IdMixin, TimestampMixin, Base):
@@ -71,14 +101,18 @@ class RepairAttemptModel(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_repair_repo_org", "repository_id", "organization_id"),
         Index("ix_repair_verif", "verification_job_id"),
+        Index("ix_repair_status", "status"),
     )
 
     organization_id: Mapped[UUID] = mapped_column(nullable=False)
     repository_id: Mapped[UUID] = mapped_column(ForeignKey("repositories.id"), nullable=False)
     verification_job_id: Mapped[UUID] = mapped_column(ForeignKey("verification_jobs.id"), nullable=False)
 
-    # Links back to the execution job that was spawned to fix this
-    repair_execution_id: Mapped[UUID] = mapped_column(ForeignKey("execution_jobs.id"), nullable=False)
+    repair_execution_id: Mapped[UUID | None] = mapped_column(ForeignKey("execution_jobs.id"), nullable=True)
 
-    prompt_used: Mapped[str] = mapped_column(Text, nullable=False)
-    is_successful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    status: Mapped[RepairAttemptStatus] = mapped_column(
+        SAEnum(RepairAttemptStatus, name="repair_attempt_status"), nullable=False, default=RepairAttemptStatus.QUEUED
+    )
+
+    prompt_used: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

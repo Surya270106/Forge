@@ -15,8 +15,7 @@ from .service import VerificationDispatcher
 router = APIRouter(prefix="/api/v1/verifications", tags=["verification"])
 
 
-async def get_tenant_organization_id() -> OrganizationId:
-    return OrganizationId(UUID("00000000-0000-0000-0000-000000000000"))
+from services.auth.dependencies import get_tenant_context as get_tenant_organization_id
 
 
 @router.post("/executions/{execution_job_id}", response_model=VerificationJobResponse)

@@ -30,6 +30,7 @@ class ForgeSettings(BaseSettings):
     # Limits
     max_repository_size_mb: int = 500
     import_timeout_seconds: int = 300
+    execution_timeout_seconds: int = 600
     worker_concurrency: int = 4
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

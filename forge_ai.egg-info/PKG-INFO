@@ -27,6 +27,7 @@ Requires-Dist: tree-sitter-python
 Requires-Dist: python-json-logger>=4.1.0
 Requires-Dist: python-dotenv>=1.2.2
 Requires-Dist: cryptography>=49.0.0
+Requires-Dist: psutil
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-asyncio; extra == "dev"

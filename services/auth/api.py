@@ -70,9 +70,13 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
+    from packages.shared.crypto import CryptoService
+    
+    encrypted_token = CryptoService.encrypt(access_token)
+    
     if not user:
         user = UserModel(
-            id=generate_id(), email=primary_email, name=github_user.get("name") or github_user.get("login"), is_active=True, github_token=access_token
+            id=generate_id(), email=primary_email, name=github_user.get("name") or github_user.get("login"), is_active=True, github_token=encrypted_token
         )
         session.add(user)
 
@@ -82,7 +86,7 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
         binding = RoleBindingModel(id=generate_id(), organization_id=org.id, user_id=user.id, role="OWNER")
         session.add(binding)
     else:
-        user.github_token = access_token
+        user.github_token = encrypted_token
 
     await session.commit()
 
@@ -94,8 +98,25 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
     jwt_token = create_access_token(data={"sub": str(user.id), "email": user.email}, expires_delta=timedelta(days=7))
 
     frontend_url = settings.cors_origins[0] if settings.cors_origins else "http://localhost:3000"
-    redirect_url = f"{frontend_url}/login/callback?token={jwt_token}&org_id={str(default_org_id)}"
-    return RedirectResponse(url=redirect_url)
+    redirect_url = f"{frontend_url}/login/success?org_id={str(default_org_id)}"
+    
+    response = RedirectResponse(url=redirect_url)
+    response.set_cookie(
+        key="forge_session",
+        value=jwt_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60, # 7 days
+    )
+    return response
+
+@router.post("/logout")
+async def logout():
+    response = RedirectResponse(url="/")
+    response.delete_cookie("forge_session", httponly=True, secure=True, samesite="lax")
+    return response
+
 
 
 @router.get("/me")

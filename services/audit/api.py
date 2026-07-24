@@ -11,7 +11,7 @@ from packages.database.models.audit import AuditLogModel
 from packages.shared.identifiers import OrganizationId, RepositoryId
 from packages.shared.pagination import PaginatedResponse, PaginationParams
 from services.audit.schemas import AuditLogResponse
-from services.auth.dependencies import get_tenant_context
+from services.auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api/v1", tags=["audit"])
 
@@ -25,7 +25,7 @@ async def list_organization_audit_logs(
     pagination: Annotated[PaginationParams, Depends()],
     action: str | None = Query(None, description="Filter by specific action"),
     resource_type: str | None = Query(None, description="Filter by resource type"),
-    tenant=Depends(get_tenant_context),
+    tenant=Depends(require_permission("workspace:settings:read")),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = select(AuditLogModel).where(AuditLogModel.organization_id == organization_id)
@@ -82,7 +82,7 @@ async def list_repository_audit_logs(
     pagination: Annotated[PaginationParams, Depends()],
     action: str | None = Query(None, description="Filter by specific action"),
     resource_type: str | None = Query(None, description="Filter by resource type"),
-    tenant=Depends(get_tenant_context),
+    tenant=Depends(require_permission("repo:read")),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = select(AuditLogModel).where(AuditLogModel.repository_id == repository_id)

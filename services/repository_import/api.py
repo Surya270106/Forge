@@ -16,19 +16,14 @@ from .service import RepositoryService
 router = APIRouter(prefix="/api/v1/repositories", tags=["Repositories"])
 logger = structlog.get_logger(__name__)
 
-from services.auth.dependencies import get_current_user, get_tenant_context
-
-
-async def get_db_session(org_id: UUID = Depends(get_tenant_context)):
-    async for session in get_session():
-        yield session
+from services.auth.dependencies import get_current_user, require_permission
 
 
 @router.post("/import", response_model=ImportRepositoryResponse, status_code=status.HTTP_202_ACCEPTED)
 async def import_repository(
     request: ImportRepositoryRequest,
-    organization_id: UUID = Depends(get_tenant_context),
-    session: AsyncSession = Depends(get_db_session),
+    organization_id: UUID = Depends(require_permission("repo:import")),
+    session: AsyncSession = Depends(get_session),
 ):
     service = RepositoryService(session)
     try:
@@ -49,7 +44,7 @@ async def import_repository(
 
 
 @router.get("/imported")
-async def list_imported_repositories(organization_id: UUID = Depends(get_tenant_context), session: AsyncSession = Depends(get_db_session)):
+async def list_imported_repositories(organization_id: UUID = Depends(require_permission("repo:read")), session: AsyncSession = Depends(get_session)):
     stmt = select(RepositoryModel).where(RepositoryModel.organization_id == organization_id)
     result = await session.execute(stmt)
     repos = result.scalars().all()

@@ -7,7 +7,8 @@ logger = structlog.get_logger(__name__)
 
 class GitHubClient:
     def __init__(self, token: str):
-        self.token = token
+        from packages.shared.crypto import CryptoService
+        self.token = CryptoService.decrypt(token) if token else token
         self.base_url = "https://api.github.com"
         self.headers = {
             "Authorization": f"Bearer {self.token}",

@@ -18,7 +18,7 @@ export default function ProviderSettingsPage() {
       const orgId = localStorage.getItem("forge_org_id");
       
       try {
-        const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/auth/workspaces/current/provider`, {
+        const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/workspaces/current/provider`, {
           headers: {
             "Authorization": `Bearer ${token}`,
             "X-Organization-Id": orgId || ""
@@ -49,7 +49,7 @@ export default function ProviderSettingsPage() {
       const token = localStorage.getItem("forge_token");
       const orgId = localStorage.getItem("forge_org_id");
       
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/auth/workspaces/current/provider`, {
+      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/workspaces/current/provider`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${token}`,

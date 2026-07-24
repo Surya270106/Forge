@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column('reviewed_by', sa.Uuid(), nullable=True),
         sa.ForeignKeyConstraint(['execution_job_id'], ['execution_jobs.id'], ),
         sa.ForeignKeyConstraint(['repository_id'], ['repositories.id'], ),
-        sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], ),
+        sa.ForeignKeyConstraint(['task_id'], ['task_nodes.id'], ),
         sa.PrimaryKeyConstraint('id')
     )
     op.create_index('ix_patches_exec', 'patches', ['execution_job_id'], unique=False)

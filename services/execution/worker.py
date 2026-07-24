@@ -115,8 +115,15 @@ class ExecutionWorker:
 
                     if node.action_type == "command":
                         cmd_str = node.parameters.get("command", "")
+                        
+                        # Normalize target to absolute container path
+                        target = node.target if node.target and node.target != "workspace" else ""
+                        container_cwd = "/workspace"
+                        if target:
+                            container_cwd = f"/workspace/{target}"
+                            
                         # Using Sandbox
-                        result = await self.sandbox.run_command(cmd_str.split(), cwd=node.target)
+                        result = await self.sandbox.run_command(cmd_str.split(), cwd=container_cwd)
 
                         if result.stdout:
                             await self._log(job.id, job.organization_id, result.stdout, node_id=node.id)

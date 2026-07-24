@@ -49,6 +49,18 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
     result = await session.execute(stmt)
     repos = result.scalars().all()
 
+    # Fetch latest indexing jobs for these repos
+    from packages.database.models.memory import IndexingJobModel
+    from sqlalchemy import desc
+
+    jobs_stmt = select(IndexingJobModel).where(IndexingJobModel.organization_id == organization_id).order_by(desc(IndexingJobModel.created_at))
+    jobs = (await session.execute(jobs_stmt)).scalars().all()
+    
+    latest_jobs = {}
+    for job in jobs:
+        if job.repository_id not in latest_jobs:
+            latest_jobs[job.repository_id] = job.status.value
+
     return {
         "repositories": [
             {
@@ -59,6 +71,7 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
                 "status": repo.status.value,
                 "default_branch": repo.default_branch,
                 "created_at": repo.created_at.isoformat() if repo.created_at else None,
+                "indexing_status": latest_jobs.get(repo.id, "NEEDS_INDEXING"),
             }
             for repo in repos
         ]

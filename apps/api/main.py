@@ -9,6 +9,7 @@ from services.patch.api import router as patch_router
 from services.planning.api import router as planning_router
 from services.repository_import.api import router as repo_router
 from services.repository_memory.api import router as memory_router
+from services.organizations.api import router as organizations_router
 
 app = FastAPI(
     title="Forge AI API",
@@ -17,13 +18,33 @@ app = FastAPI(
 )
 
 # CORS configuration
+from packages.shared.config import get_settings
+settings = get_settings()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["X-Frame-Options"] = "DENY"
+        if settings.environment == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(repo_router)
@@ -33,7 +54,17 @@ app.include_router(execution_router)
 app.include_router(context_router)
 app.include_router(patch_router)
 app.include_router(audit_router)
+app.include_router(organizations_router)
 
+from services.github.webhooks import router as github_router
+app.include_router(github_router)
+
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 @app.get("/health")
 async def health_check():

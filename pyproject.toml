@@ -91,6 +91,12 @@ testpaths = ["tests"]
 requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "cyclonedx-bom>=7.3.1",
+    "pip-audit>=2.10.1",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = [

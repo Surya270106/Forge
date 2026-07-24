@@ -29,6 +29,7 @@ class Action(str, Enum):
 class Role(str, Enum):
     OWNER = "OWNER"
     ADMIN = "ADMIN"
+    MEMBER = "MEMBER"
     VIEWER = "VIEWER"
 
 
@@ -47,6 +48,14 @@ ROLE_PERMISSIONS: dict[str, set[Action]] = {
         Action.EXEC_READ,
         Action.EXEC_CANCEL,
         Action.WORKSPACE_SETTINGS_READ,
+        Action.WORKSPACE_SETTINGS_WRITE,
+    },
+    Role.MEMBER: {
+        Action.REPO_READ,
+        Action.PLAN_CREATE,
+        Action.PLAN_READ,
+        Action.PATCH_READ,
+        Action.EXEC_READ,
     },
     Role.VIEWER: {
         Action.REPO_READ,

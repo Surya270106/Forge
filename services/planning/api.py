@@ -32,6 +32,7 @@ async def create_plan(
     edges = (await session.execute(stmt)).scalars().all()
 
     plan_dict = plan.__dict__.copy()
+    plan_dict["nodes"] = plan.nodes
     plan_dict["edges"] = edges
     return plan_dict
 
@@ -49,6 +50,7 @@ async def get_plan(
     edges = (await session.execute(stmt)).scalars().all()
 
     plan_dict = plan.__dict__.copy()
+    plan_dict["nodes"] = plan.nodes
     plan_dict["edges"] = edges
     return plan_dict
 
@@ -66,6 +68,7 @@ async def approve_plan(
     edges = (await session.execute(stmt)).scalars().all()
 
     plan_dict = plan.__dict__.copy()
+    plan_dict["nodes"] = plan.nodes
     plan_dict["edges"] = edges
     return plan_dict
 
@@ -86,6 +89,7 @@ async def revise_plan(
     edges = (await session.execute(stmt)).scalars().all()
 
     plan_dict = plan.__dict__.copy()
+    plan_dict["nodes"] = plan.nodes
     plan_dict["edges"] = edges
     return plan_dict
 

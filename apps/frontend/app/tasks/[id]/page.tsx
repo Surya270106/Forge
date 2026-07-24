@@ -161,10 +161,20 @@ export default function TaskPage({ params }: { params: { id: string } }) {
                   <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-xs font-bold">
                     {idx + 1}
                   </div>
-                  <h3 className="font-medium text-white mb-1">{node.description}</h3>
-                  <div className="flex gap-2">
-                    <span className="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded uppercase">{node.status}</span>
-                    <span className="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded uppercase">{node.type}</span>
+                  <div className="mb-2">
+                    <span className="text-[10px] bg-accent/20 text-accent border border-accent/30 px-2 py-0.5 rounded uppercase font-semibold tracking-wider">
+                      {node.action_type}
+                    </span>
+                  </div>
+                  <h3 className="font-medium text-white mb-2">
+                    {node.action_type === "edit_file" 
+                      ? `Edit file: ${node.target}` 
+                      : node.action_type === "command"
+                      ? `Run command in ${node.target}`
+                      : `${node.action_type} on ${node.target}`}
+                  </h3>
+                  <div className="text-sm font-mono text-gray-400 bg-black/50 p-2 rounded-md border border-gray-800 overflow-x-auto whitespace-pre-wrap">
+                    {node.parameters?.changes || node.parameters?.command || JSON.stringify(node.parameters, null, 2)}
                   </div>
                 </div>
               )) : (

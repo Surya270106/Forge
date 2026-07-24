@@ -106,3 +106,55 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  security-scans:
+    name: Security & Dependency Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          
+      - name: Install Python
+        run: uv python install 3.12
+        
+      - name: Install security tools
+        run: uv pip install --system pip-audit cyclonedx-bom detect-secrets
+
+      - name: Secret Scan
+        run: detect-secrets scan --all-files
+        
+      - name: Generate SBOM
+        run: cyclonedx-py environment --outfile sbom.json
+        
+      - name: Dependency Scan
+        run: pip-audit
+
+  e2e-tests:
+    name: Compose E2E & DockerSandbox
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build images
+        run: docker compose build
+        
+      - name: Start stack
+        run: docker compose up -d
+        
+      - name: Wait for healthy stack
+        run: |
+          sleep 10
+          docker compose ps
+          curl -f http://localhost:8000/health || exit 1
+          
+      - name: Run E2E Integration
+        run: |
+          uv pip install --system pytest requests
+          pytest tests/e2e tests/integration -v

@@ -174,7 +174,7 @@ class AgentOrchestrator:
             organization_id=self.organization_id,
             repository_id=repository_id,
             context_snapshot_id=snapshot.id,
-            provider=provider,
+            provider=ModelProvider(provider.upper()),
             model=model_name,
             response_text=response_text,
             tool_calls=tool_calls,

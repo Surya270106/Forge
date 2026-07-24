@@ -10,23 +10,40 @@ from packages.shared.identifiers import OrganizationId
 from services.auth.jwt import decode_access_token
 
 
-async def get_current_user(request: Request, session: AsyncSession = Depends(get_session)) -> dict:
+async def get_current_user(request: Request, session: AsyncSession = Depends(get_session)):
     token = request.cookies.get("forge_session")
-
     if not token:
-        # Fallback for programmatic API access
+        # Check Authorization header as fallback for API clients
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
 
     if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    payload = decode_access_token(token)
-    if not payload:
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        session_id = payload.get("session_id")
+        
+        if not user_id or not email:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        # Validate server-side session if present in token
+        if session_id:
+            from packages.database.models.auth import SessionModel
+            from datetime import datetime, timezone
+            stmt = select(SessionModel).where(SessionModel.id == session_id)
+            result = await session.execute(stmt)
+            db_session = result.scalar_one_or_none()
+            if not db_session or not db_session.is_active:
+                raise HTTPException(status_code=401, detail="Session revoked")
+            if db_session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+                raise HTTPException(status_code=401, detail="Session expired")
+            
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-    user_id = payload.get("sub")
 
     stmt = select(UserModel).where(UserModel.id == user_id)
     result = await session.execute(stmt)
@@ -76,6 +93,9 @@ async def _verify_and_set_tenant(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid X-Organization-Id format")
 
+    from packages.database.tenant import set_system_context, set_tenant
+    
+    set_system_context()
     stmt = select(RoleBindingModel).where(RoleBindingModel.organization_id == org_uuid, RoleBindingModel.user_id == user["id"])
     result = await session.execute(stmt)
     binding = result.scalar_one_or_none()

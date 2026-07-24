@@ -65,5 +65,5 @@ def has_permission(role: str, action: str) -> bool:
         action_enum = Action(action)
     except ValueError:
         return False
-        
+
     return action_enum in ROLE_PERMISSIONS[role]

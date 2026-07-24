@@ -129,7 +129,7 @@ class PatchService:
         patch.status = PatchStatus.REJECTED
         patch.reviewed_at = datetime.now(UTC)
         patch.reviewed_by = user_id
-        
+
         # We need to inform the planning engine to generate a new plan based on the feedback
         exec_job = await self.session.get(ExecutionJobModel, patch.execution_job_id)
         if exec_job and exec_job.plan_id:
@@ -139,6 +139,6 @@ class PatchService:
                 await planning_svc.revise_plan(exec_job.plan_id, f"Patch rejected. Feedback: {feedback}")
             except Exception as e:
                 logger.error("patch_revise_plan_trigger_failed", error=str(e))
-                
+
         await self.session.commit()
         return patch

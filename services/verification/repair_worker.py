@@ -1,20 +1,18 @@
-import asyncio
 from typing import Any
 from uuid import UUID
 
 import structlog
 from sqlalchemy import select
 
-from packages.database.engine import get_session
 from packages.database.models.execution import ExecutionJobModel
 from packages.database.models.verification import RepairAttemptModel, VerificationJobModel, VerificationResultModel, VerificationStatus
-from packages.shared.config import get_settings
 from services.planning.service import PlanningService
 
 logger = structlog.get_logger(__name__)
 
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 async def handle_repair_attempted(payload: dict[str, Any], session: AsyncSession) -> None:
     """
@@ -67,13 +65,13 @@ async def handle_repair_attempted(payload: dict[str, Any], session: AsyncSession
                 feedback_lines.append(f"Diagnostics: {result.diagnostics}")
 
         feedback = "\n".join(feedback_lines)
-        
+
         # Update repair attempt
         repair.prompt_used = feedback
         await session.commit()
 
         planning_svc = PlanningService(session, organization_id)
-        
+
         if exec_job.plan_id:
             try:
                 await planning_svc.revise_plan(exec_job.plan_id, feedback)

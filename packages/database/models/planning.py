@@ -38,7 +38,7 @@ class PlanModel(IdMixin, TimestampMixin, Base):
     )
     intent: Mapped[str] = mapped_column(Text, nullable=False)
     context_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    
+
     parent_plan_id: Mapped[UUID | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
 

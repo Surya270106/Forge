@@ -12,7 +12,7 @@ from services.auth.jwt import decode_access_token
 
 async def get_current_user(request: Request, session: AsyncSession = Depends(get_session)) -> dict:
     token = request.cookies.get("forge_session")
-    
+
     if not token:
         # Fallback for programmatic API access
         auth_header = request.headers.get("Authorization")

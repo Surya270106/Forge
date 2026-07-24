@@ -16,6 +16,7 @@ class PaginationParams(BaseModel):
 
 from typing import Generic, TypeVar
 
+
 class PaginatedResponse(BaseModel, Generic[T]):
     items: Sequence[T]
     total: int

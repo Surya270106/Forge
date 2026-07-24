@@ -71,9 +71,9 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
     user = result.scalar_one_or_none()
 
     from packages.shared.crypto import CryptoService
-    
+
     encrypted_token = CryptoService.encrypt(access_token)
-    
+
     if not user:
         user = UserModel(
             id=generate_id(), email=primary_email, name=github_user.get("name") or github_user.get("login"), is_active=True, github_token=encrypted_token
@@ -99,7 +99,7 @@ async def github_callback(code: str, request: Request, session: AsyncSession = D
 
     frontend_url = settings.cors_origins[0] if settings.cors_origins else "http://localhost:3000"
     redirect_url = f"{frontend_url}/login/success?org_id={str(default_org_id)}"
-    
+
     response = RedirectResponse(url=redirect_url)
     response.set_cookie(
         key="forge_session",
@@ -152,7 +152,9 @@ async def get_provider_config(request: Request, session: AsyncSession = Depends(
     config = result.scalar_one_or_none()
 
     if config and "api_key" in config:
-        config["api_key"] = f"sk-...{config['api_key'][-4:]}" if len(config["api_key"]) > 4 else "sk-..."
+        from packages.shared.crypto import CryptoService
+        decrypted_key = CryptoService.decrypt(config["api_key"])
+        config["api_key"] = f"sk-...{decrypted_key[-4:]}" if len(decrypted_key) > 4 else "sk-..."
 
     return {"config": config or {}}
 
@@ -163,10 +165,14 @@ async def update_provider_config(request: Request, session: AsyncSession = Depen
     if not org_id_str:
         raise HTTPException(status_code=400, detail="Missing X-Organization-Id")
 
+    from packages.shared.crypto import CryptoService
+
     data = await request.json()
     provider = data.get("provider")
     api_key = data.get("api_key")
     model = data.get("model")
+
+    budget_usd = data.get("budget_usd")
 
     if not provider or not api_key:
         raise HTTPException(status_code=400, detail="Provider and API key are required")
@@ -178,7 +184,80 @@ async def update_provider_config(request: Request, session: AsyncSession = Depen
     if not org:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    org.provider_config = {"provider": provider, "api_key": api_key, "model": model or "gpt-4o"}
+    # If the user sends a masked key back, don't overwrite the actual key
+    if api_key.startswith("sk-..."):
+        api_key = CryptoService.decrypt(org.provider_config.get("api_key", "")) if org.provider_config else ""
+
+    encrypted_key = CryptoService.encrypt(api_key)
+
+    new_config = {
+        "provider": provider,
+        "api_key": encrypted_key,
+        "model": model or "gpt-4o",
+        "budget_usd": float(budget_usd) if budget_usd is not None else (org.provider_config.get("budget_usd", 100.0) if org.provider_config else 100.0),
+        "spend_usd": org.provider_config.get("spend_usd", 0.0) if org.provider_config else 0.0
+    }
+    org.provider_config = new_config
     await session.commit()
 
     return {"status": "updated"}
+
+@router.post("/workspaces/current/provider/test")
+async def test_provider_config(request: Request, session: AsyncSession = Depends(get_session)):
+    org_id_str = request.headers.get("X-Organization-Id")
+    if not org_id_str:
+        raise HTTPException(status_code=400, detail="Missing X-Organization-Id")
+
+    from packages.shared.crypto import CryptoService
+
+    data = await request.json()
+    provider = data.get("provider")
+    api_key = data.get("api_key")
+
+    if not provider or not api_key:
+        # fallback to db if none provided
+        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id_str)
+        result = await session.execute(stmt)
+        config = result.scalar_one_or_none()
+        if not config:
+            raise HTTPException(status_code=400, detail="Provider and API key are required")
+        provider = config.get("provider")
+        api_key = CryptoService.decrypt(config.get("api_key", ""))
+
+    # if it's masked from the frontend, fetch from DB
+    if api_key.startswith("sk-..."):
+        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id_str)
+        result = await session.execute(stmt)
+        config = result.scalar_one_or_none()
+        if not config:
+            raise HTTPException(status_code=400, detail="Invalid masked API key")
+        api_key = CryptoService.decrypt(config.get("api_key", ""))
+
+    try:
+        async with httpx.AsyncClient() as client:
+            if provider.lower() == "openai":
+                resp = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=10.0,
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"OpenAI error: {resp.text}")
+            elif provider.lower() == "anthropic":
+                # Anthropic doesn't have a simple /models endpoint, test via a cheap message
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                    json={"model": "claude-3-haiku-20240307", "max_tokens": 10, "messages": [{"role": "user", "content": "hello"}]},
+                    timeout=10.0,
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Anthropic error: {resp.text}")
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"status": "ok", "message": "Connection successful"}

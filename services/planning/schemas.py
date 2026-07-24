@@ -12,6 +12,11 @@ class CreatePlanRequest(BaseModel):
     memory_version_id: UUID | None = Field(None, description="The specific repository memory version to use")
 
 
+class RevisePlanRequest(BaseModel):
+    feedback: str = Field(..., description="The feedback to revise the plan")
+    memory_version_id: UUID | None = Field(None, description="The specific repository memory version to use")
+
+
 class TaskNodeSchema(BaseModel):
     id: UUID
     action_type: str

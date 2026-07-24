@@ -7,7 +7,7 @@ from packages.database.engine import get_session
 from packages.shared.identifiers import OrganizationId
 from services.auth.dependencies import get_tenant_context as get_tenant_organization_id
 
-from .schemas import AcceptPatchRequest, PatchResponse, RejectPatchRequest
+from .schemas import AcceptPatchRequest, PatchResponse, RejectPatchRequest, RevisePatchRequest
 from .service import PatchService
 
 router = APIRouter(prefix="/api/v1/patches", tags=["patch"])
@@ -43,3 +43,14 @@ async def reject_patch(
 ):
     service = PatchService(session, organization_id)
     return await service.reject_patch(patch_id)
+
+
+@router.post("/{patch_id}/revise", response_model=PatchResponse)
+async def revise_patch(
+    patch_id: UUID,
+    request: RevisePatchRequest,
+    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    session: AsyncSession = Depends(get_session),
+):
+    service = PatchService(session, organization_id)
+    return await service.revise_patch(patch_id, request.feedback)

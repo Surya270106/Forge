@@ -117,3 +117,28 @@ class PatchService:
         patch.reviewed_by = user_id
         await self.session.commit()
         return patch
+
+    async def revise_patch(self, patch_id: UUID, feedback: str, user_id: UUID | None = None) -> PatchModel:
+        patch = await self.session.get(PatchModel, patch_id)
+        if not patch or patch.organization_id != self.organization_id:
+            raise NotFoundError("patch_not_found", "Patch not found", ErrorCategory.NOT_FOUND)
+
+        if patch.status not in (PatchStatus.GENERATED, PatchStatus.UNDER_REVIEW):
+            raise ConflictError("patch_not_ready", f"Cannot revise patch in status {patch.status}", ErrorCategory.CONFLICT)
+
+        patch.status = PatchStatus.REJECTED
+        patch.reviewed_at = datetime.now(UTC)
+        patch.reviewed_by = user_id
+        
+        # We need to inform the planning engine to generate a new plan based on the feedback
+        exec_job = await self.session.get(ExecutionJobModel, patch.execution_job_id)
+        if exec_job and exec_job.plan_id:
+            from services.planning.service import PlanningService
+            planning_svc = PlanningService(self.session, self.organization_id)
+            try:
+                await planning_svc.revise_plan(exec_job.plan_id, f"Patch rejected. Feedback: {feedback}")
+            except Exception as e:
+                logger.error("patch_revise_plan_trigger_failed", error=str(e))
+                
+        await self.session.commit()
+        return patch

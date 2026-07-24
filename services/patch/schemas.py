@@ -33,3 +33,7 @@ class AcceptPatchRequest(BaseModel):
 
 class RejectPatchRequest(BaseModel):
     pass
+
+
+class RevisePatchRequest(BaseModel):
+    feedback: str

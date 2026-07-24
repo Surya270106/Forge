@@ -56,7 +56,7 @@ async def run_worker():
     # Register handlers for available events
     event_worker.register_handler("repository.import_started", handle_import)
     event_worker.register_handler("execution.started", handle_execution)
-    
+
     from services.verification.repair_worker import handle_repair_attempted
     event_worker.register_handler("verification.repair_attempted", handle_repair_attempted)
 

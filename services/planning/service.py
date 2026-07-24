@@ -130,9 +130,9 @@ class PlanningService:
             )
 
         old_plan.status = PlanStatus.SUPERSEDED
-        
+
         mem_id = memory_version_id or old_plan.memory_version_id
-        
+
         new_plan = PlanModel(
             id=generate_id(),
             organization_id=self.organization_id,

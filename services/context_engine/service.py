@@ -114,12 +114,18 @@ class AgentOrchestrator:
         import httpx
 
         from packages.database.models.auth import OrganizationModel
+        from packages.shared.crypto import CryptoService
 
         org = await self.session.get(OrganizationModel, self.organization_id)
         provider_config = org.provider_config or {} if org else {}
-        api_key = provider_config.get("api_key")
+        api_key = CryptoService.decrypt(provider_config.get("api_key", ""))
         provider = provider_config.get("provider", "openai").lower()
         model_name = provider_config.get("model", "gpt-4o")
+        budget_usd = float(provider_config.get("budget_usd", 100.0))
+        spend_usd = float(provider_config.get("spend_usd", 0.0))
+
+        if spend_usd >= budget_usd:
+            raise Exception(f"Budget exceeded. Spent ${spend_usd:.2f} of ${budget_usd:.2f} budget.")
 
         response_text = ""
         tool_calls = []
@@ -177,6 +183,15 @@ class AgentOrchestrator:
             latency_ms=1500,
         )
         self.session.add(interaction)
+
+        # 7. Update Spend (simplified cost estimation)
+        cost_per_1k_tokens = 0.01
+        estimated_cost = ((snapshot.tokens_estimated + (len(response_text) // 4)) / 1000.0) * cost_per_1k_tokens
+        if org and org.provider_config:
+            new_config = dict(org.provider_config)
+            new_config["spend_usd"] = new_config.get("spend_usd", 0.0) + estimated_cost
+            org.provider_config = new_config
+
         await self.session.flush()
 
         await self.publisher.publish(create_agent_invoked_event(self.organization_id, repository_id, interaction.id))

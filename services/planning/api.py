@@ -71,6 +71,7 @@ async def approve_plan(
 
 from .schemas import RevisePlanRequest
 
+
 @router.post("/api/v1/plans/{plan_id}/revise", response_model=PlanResponse)
 async def revise_plan(
     plan_id: UUID,

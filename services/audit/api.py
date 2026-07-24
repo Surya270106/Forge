@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
 from packages.database.models.audit import AuditLogModel
-from packages.shared.identifiers import OrganizationId, RepositoryId
 from packages.shared.pagination import PaginatedResponse, PaginationParams
 from services.audit.schemas import AuditLogResponse
 from services.auth.dependencies import require_permission

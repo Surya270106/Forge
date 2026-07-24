@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from services.auth.api import router as auth_router
 from services.audit.api import router as audit_router
+from services.auth.api import router as auth_router
 from services.context_engine.api import router as context_router
 from services.execution.api import router as execution_router
 from services.patch.api import router as patch_router

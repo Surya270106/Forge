@@ -4,6 +4,9 @@ import React, { useEffect, useState } from "react";
 import { env } from "../../config/env";
 import { Activity, Clock, Search, ArrowRight, Loader2, GitCommit } from "lucide-react";
 import Link from "next/link";
+import { AppShell } from "../components/AppShell";
+import { Card, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<any[]>([]);
@@ -39,67 +42,75 @@ export default function RunsPage() {
   const filtered = runs.filter(r => (r.intent || "").toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="p-8 max-w-5xl mx-auto flex flex-col h-full">
+    <AppShell>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Runs & History</h1>
-        <p className="text-muted">View past task executions, plans, and AI modifications.</p>
+        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 mb-2">Runs & History</h1>
+        <p className="text-slate-500">View past task executions, plans, and AI modifications.</p>
       </div>
 
-      <div className="bg-surface border border-border rounded-xl p-6 mb-6 flex items-center gap-4 shrink-0">
-        <Search className="w-5 h-5 text-muted" />
+      <div className="relative mb-6">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
         <input 
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search intents or repositories..."
-          className="flex-1 bg-transparent border-none focus:outline-none text-white"
+          placeholder="Search intents..."
+          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
         />
       </div>
 
-      <div className="flex-1 overflow-hidden flex flex-col bg-surface border border-border rounded-xl">
-        <div className="grid grid-cols-12 gap-4 p-4 border-b border-border text-sm font-medium text-muted bg-black/20 shrink-0">
-          <div className="col-span-5">Intent</div>
-          <div className="col-span-3">Status</div>
-          <div className="col-span-3">Date</div>
-          <div className="col-span-1 text-right">Action</div>
+      <Card className="overflow-hidden">
+        <div className="grid grid-cols-12 gap-4 p-4 border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500 bg-slate-50/50 font-mono">
+          <div className="col-span-12 md:col-span-6">Intent</div>
+          <div className="col-span-4 md:col-span-2 hidden md:block">Status</div>
+          <div className="col-span-4 md:col-span-3 hidden md:block">Date</div>
+          <div className="col-span-1 hidden md:block text-right"></div>
         </div>
         
-        <div className="overflow-y-auto flex-1 p-2">
+        <div className="divide-y divide-slate-100">
           {loading ? (
-            <div className="flex items-center justify-center py-20 text-muted gap-3">
-              <Loader2 className="w-5 h-5 animate-spin" /> Loading run history...
+            <div className="flex flex-col items-center justify-center py-24 text-slate-500 gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-500" /> 
+              <span className="font-medium">Loading run history...</span>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted">
-              <Activity className="w-12 h-12 mb-4 opacity-50" />
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+              <Activity className="w-12 h-12 mb-4 text-slate-300" />
               <p>No runs found matching your search.</p>
             </div>
           ) : (
             filtered.map(run => (
-              <Link href={`/tasks/${run.id}`} key={run.id} className="grid grid-cols-12 gap-4 p-4 hover:bg-black/40 rounded-lg transition-colors items-center group">
-                <div className="col-span-5 flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${run.status === 'COMPLETED' ? 'bg-green-900/30 text-green-400' : run.status === 'APPROVED' ? 'bg-blue-900/30 text-blue-400' : 'bg-yellow-900/30 text-yellow-400'}`}>
+              <Link href={`/tasks/${run.id}`} key={run.id} className="grid grid-cols-12 gap-4 p-4 hover:bg-slate-50 transition-colors items-center group block">
+                <div className="col-span-12 md:col-span-6 flex items-start gap-4">
+                  <div className={`mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${run.status === 'COMPLETED' ? 'bg-green-50 text-green-600' : run.status === 'APPROVED' ? 'bg-blue-50 text-blue-600' : 'bg-yellow-50 text-yellow-600'}`}>
                     {run.status === 'COMPLETED' ? <GitCommit className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                   </div>
-                  <div className="truncate font-medium text-white" title={run.intent}>{run.intent}</div>
+                  <div>
+                    <div className="font-medium text-slate-900 line-clamp-2" title={run.intent}>{run.intent}</div>
+                    <div className="mt-1 md:hidden flex gap-2">
+                      <Badge variant={run.status === 'COMPLETED' ? 'success' : run.status === 'APPROVED' ? 'default' : 'warning'}>
+                        {run.status}
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
-                <div className="col-span-3">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider ${run.status === 'COMPLETED' ? 'bg-green-900/30 text-green-400 border border-green-900/50' : run.status === 'APPROVED' ? 'bg-blue-900/30 text-blue-400 border border-blue-900/50' : 'bg-yellow-900/30 text-yellow-400 border border-yellow-900/50'}`}>
-                    {run.status}
-                  </span>
+                <div className="col-span-2 hidden md:block">
+                  <Badge variant={run.status === 'COMPLETED' ? 'success' : run.status === 'APPROVED' ? 'default' : 'warning'}>
+                    {run.status.replace('_', ' ')}
+                  </Badge>
                 </div>
-                <div className="col-span-3 flex items-center gap-2 text-sm text-muted">
+                <div className="col-span-3 hidden md:flex items-center gap-2 text-sm text-slate-500">
                   <Clock className="w-3.5 h-3.5" />
                   {new Date(run.created_at).toLocaleDateString()}
                 </div>
-                <div className="col-span-1 flex justify-end text-muted group-hover:text-accent transition-colors">
+                <div className="col-span-1 hidden md:flex justify-end text-slate-300 group-hover:text-blue-500 transition-colors">
                   <ArrowRight className="w-4 h-4" />
                 </div>
               </Link>
             ))
           )}
         </div>
-      </div>
-    </div>
+      </Card>
+    </AppShell>
   );
 }

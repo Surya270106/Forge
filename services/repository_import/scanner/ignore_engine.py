@@ -133,7 +133,4 @@ class IgnoreEngine:
             return True
 
         # Check gitignore
-        if self._matches_gitignore(relative_path):
-            return True
-
-        return False
+        return bool(self._matches_gitignore(relative_path))

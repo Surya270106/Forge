@@ -19,6 +19,7 @@ packages/database/models/execution.py
 packages/database/models/import_job.py
 packages/database/models/memory.py
 packages/database/models/outbox_event.py
+packages/database/models/patch.py
 packages/database/models/planning.py
 packages/database/models/processed_event.py
 packages/database/models/repository.py
@@ -44,7 +45,6 @@ services/__init__.py
 services/auth/api.py
 services/auth/dependencies.py
 services/auth/jwt.py
-services/auth/middleware.py
 services/context_engine/api.py
 services/context_engine/events.py
 services/context_engine/schemas.py
@@ -57,6 +57,11 @@ services/execution/patch_engine.py
 services/execution/sandbox.py
 services/execution/schemas.py
 services/execution/worker.py
+services/patch/__init__.py
+services/patch/api.py
+services/patch/github_client.py
+services/patch/schemas.py
+services/patch/service.py
 services/planning/api.py
 services/planning/events.py
 services/planning/planner.py
@@ -84,6 +89,7 @@ services/repository_memory/schemas.py
 services/repository_memory/service.py
 services/verification/api.py
 services/verification/events.py
+services/verification/registry.py
 services/verification/schemas.py
 services/verification/service.py
 tests/test_rfc002_memory.py

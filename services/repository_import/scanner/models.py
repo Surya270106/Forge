@@ -1,10 +1,10 @@
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class FileCategory(str, Enum):
+class FileCategory(StrEnum):
     """Enumeration of all possible file categories."""
 
     SOURCE = "source"

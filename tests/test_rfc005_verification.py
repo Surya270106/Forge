@@ -93,10 +93,10 @@ async def test_run_verification_failure_triggers_repair(mock_sandbox_class, mock
 
     results = [call[0][0] for call in add_calls]
     assert results[0].diagnostic_type == DiagnosticType.LINT
-    assert results[0].is_passed == True
+    assert results[0].is_passed
 
     assert results[1].diagnostic_type == DiagnosticType.UNIT_TEST
-    assert results[1].is_passed == False
+    assert not results[1].is_passed
 
     repair = results[2]
     assert repair.__class__.__name__ == "RepairAttemptModel"

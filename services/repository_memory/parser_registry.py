@@ -67,9 +67,9 @@ class ParserRegistry:
 
 
 try:
-    import tree_sitter_javascript  # type: ignore
-    import tree_sitter_python
-    import tree_sitter_typescript  # type: ignore
+    import tree_sitter_javascript  # type: ignore # noqa: F401
+    import tree_sitter_python  # noqa: F401
+    import tree_sitter_typescript  # type: ignore # noqa: F401
     from tree_sitter import Language, Parser, Query, QueryCursor
 
     # pyright: ignore

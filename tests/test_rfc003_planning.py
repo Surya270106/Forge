@@ -1,4 +1,3 @@
-import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -6,7 +5,6 @@ import pytest
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel
 from packages.shared.identifiers import generate_id
-from services.planning.planner import AIPlanner
 from services.planning.service import PlanningService
 
 

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..base import Base, IdMixin, TimestampMixin
 
 
-class ImportJobStatus(str, enum.Enum):
+class ImportJobStatus(enum.StrEnum):
     PENDING = "PENDING"
     AUTHENTICATING = "AUTHENTICATING"
     CLONING = "CLONING"

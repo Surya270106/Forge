@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
-from packages.database.models.auth import OrganizationModel, RoleBindingModel, UserModel
+from packages.database.models.auth import RoleBindingModel, UserModel
 from packages.shared.identifiers import OrganizationId
 from services.auth.jwt import decode_access_token
 

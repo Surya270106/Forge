@@ -1,5 +1,4 @@
 import json
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -44,7 +44,7 @@ class PlanningService:
         else:
             stmt = select(RepositoryMemoryVersionModel).where(
                 RepositoryMemoryVersionModel.repository_id == repository_id,
-                RepositoryMemoryVersionModel.is_active == True,
+                RepositoryMemoryVersionModel.is_active,
             )
             mem_ver = (await self.session.execute(stmt)).scalars().first()
             if mem_ver:

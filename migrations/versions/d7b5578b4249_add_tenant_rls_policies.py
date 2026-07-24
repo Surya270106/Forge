@@ -51,11 +51,11 @@ def upgrade() -> None:
         AS PERMISSIVE FOR ALL
         TO PUBLIC
         USING (
-            current_user = 'forge_admin' 
+            current_user = 'forge_admin'
             OR organization_id::text = current_setting('forge.organization_id', true)
         )
         WITH CHECK (
-            current_user = 'forge_admin' 
+            current_user = 'forge_admin'
             OR organization_id::text = current_setting('forge.organization_id', true)
         );
         """)

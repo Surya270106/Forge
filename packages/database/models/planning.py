@@ -1,4 +1,4 @@
-from enum import Enum as PyEnum
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Enum as SAEnum
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from packages.database.base import Base, IdMixin, TimestampMixin
 
 
-class PlanStatus(str, PyEnum):
+class PlanStatus(StrEnum):
     DRAFT = "DRAFT"
     PENDING_APPROVAL = "PENDING_APPROVAL"
     APPROVED = "APPROVED"

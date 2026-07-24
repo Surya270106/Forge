@@ -34,6 +34,13 @@ class ForgeSettings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+    from pydantic import model_validator
+
+    @model_validator(mode='after')
+    def check_production_secret(self) -> "ForgeSettings":
+        if self.environment == "production" and self.secret_key.get_secret_value() == "change-me-in-production":
+            raise ValueError("SECRET_KEY must be changed in production")
+        return self
 
 def get_settings() -> ForgeSettings:
     return ForgeSettings()

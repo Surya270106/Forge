@@ -110,7 +110,6 @@ class AgentOrchestrator:
         await self.publisher.publish(create_context_assembled_event(self.organization_id, repository_id, snapshot.id, plan_id))
 
         # 5. Invoke LLM (Real Implementation)
-        import json
 
         import httpx
 

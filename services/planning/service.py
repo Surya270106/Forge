@@ -119,3 +119,47 @@ class PlanningService:
         await self.publisher.publish(create_plan_rejected_event(self.organization_id, plan.repository_id, plan.id, reason))
         await self.session.commit()
         return plan
+
+    async def revise_plan(self, plan_id: UUID, feedback: str, memory_version_id: UUID | None = None) -> PlanModel:
+        old_plan = await self.get_plan(plan_id)
+        if old_plan.status not in (PlanStatus.PENDING_APPROVAL, PlanStatus.DRAFT):
+            raise ConflictError(
+                code="invalid_plan_state",
+                message=f"Cannot revise plan in state {old_plan.status.value}",
+                category=ErrorCategory.CONFLICT,
+            )
+
+        old_plan.status = PlanStatus.SUPERSEDED
+        
+        mem_id = memory_version_id or old_plan.memory_version_id
+        
+        new_plan = PlanModel(
+            id=generate_id(),
+            organization_id=self.organization_id,
+            repository_id=old_plan.repository_id,
+            memory_version_id=mem_id,
+            status=PlanStatus.DRAFT,
+            intent=old_plan.intent,
+            parent_plan_id=old_plan.id,
+            feedback=feedback,
+            context_snapshot={},
+        )
+        self.session.add(new_plan)
+        await self.session.flush()
+
+        from .planner import AIPlanner
+
+        combined_intent = f"Original Intent: {old_plan.intent}\nUser Feedback to Revise: {feedback}"
+        planner = AIPlanner(self.session, self.organization_id, new_plan.id)
+        nodes, edges = await planner.build_plan(old_plan.repository_id, combined_intent)
+        self.session.add_all(nodes)
+        self.session.add_all(edges)
+        await self.session.flush()
+
+        new_plan.status = PlanStatus.PENDING_APPROVAL
+
+        await self.publisher.publish(create_plan_created_event(self.organization_id, old_plan.repository_id, new_plan.id))
+        await self.session.commit()
+
+        stmt_reload = select(PlanModel).options(selectinload(PlanModel.nodes)).where(PlanModel.id == new_plan.id)
+        return (await self.session.execute(stmt_reload)).scalars().first()  # type: ignore

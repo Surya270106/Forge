@@ -74,6 +74,24 @@ async def approve_plan(
     plan_dict["edges"] = edges
     return plan_dict
 
+from .schemas import RevisePlanRequest
+
+@router.post("/api/v1/plans/{plan_id}/revise", response_model=PlanResponse)
+async def revise_plan(
+    plan_id: UUID,
+    request: RevisePlanRequest,
+    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    service = PlanningService(session, organization_id)
+    plan = await service.revise_plan(plan_id, request.feedback, request.memory_version_id)
+
+    stmt = select(TaskEdgeModel).where(TaskEdgeModel.plan_id == plan.id)
+    edges = (await session.execute(stmt)).scalars().all()
+
+    plan_dict = plan.__dict__.copy()
+    plan_dict["edges"] = edges
+    return plan_dict
 
 from packages.database.models.planning import PlanModel
 

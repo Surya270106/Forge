@@ -35,6 +35,7 @@ packages/sdk/manifest.py
 packages/sdk/mcp.py
 packages/shared/__init__.py
 packages/shared/config.py
+packages/shared/crypto.py
 packages/shared/errors.py
 packages/shared/events.py
 packages/shared/identifiers.py
@@ -49,6 +50,7 @@ services/audit/worker.py
 services/auth/api.py
 services/auth/dependencies.py
 services/auth/jwt.py
+services/auth/permissions.py
 services/context_engine/api.py
 services/context_engine/events.py
 services/context_engine/schemas.py

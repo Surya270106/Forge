@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import UTC, datetime
 from uuid import UUID
@@ -102,58 +103,62 @@ class ExecutionWorker:
             return
 
         try:
-            for node_id in nx.topological_sort(dag):
-                node: TaskNodeModel = dag.nodes[node_id]["data"]
-                await self._log(
-                    job.id,
-                    job.organization_id,
-                    f"Executing task {node.action_type} on {node.target}",
-                    node_id=node.id,
-                )
-
-                if node.action_type == "command":
-                    cmd_str = node.parameters.get("command", "")
-                    # Using Sandbox
-                    result = await self.sandbox.run_command(cmd_str.split(), cwd=node.target)
-
-                    if result.stdout:
-                        await self._log(job.id, job.organization_id, result.stdout, node_id=node.id)
-                    if result.stderr:
-                        await self._log(
-                            job.id,
-                            job.organization_id,
-                            result.stderr,
-                            node_id=node.id,
-                            stream="stderr",
-                        )
-
-                    if result.exit_code != 0:
-                        raise RuntimeError(f"Command failed with exit code {result.exit_code}")
-
-                elif node.action_type == "edit_file":
-                    new_content = node.parameters.get("changes", "")
-                    diff = patch_engine.apply_patch(node.target, new_content)
-
-                    mutation = MutationModel(
-                        id=generate_id(),
-                        organization_id=job.organization_id,
-                        repository_id=job.repository_id,
-                        execution_job_id=job.id,
-                        task_node_id=node.id,
-                        file_path=node.target,
-                        mutation_type="UPDATE",
-                        diff_hunk=diff,
-                    )
-                    self.session.add(mutation)
+            async def _execute_nodes():
+                for node_id in nx.topological_sort(dag):
+                    node: TaskNodeModel = dag.nodes[node_id]["data"]
                     await self._log(
                         job.id,
                         job.organization_id,
-                        f"Applied patch to {node.target}",
+                        f"Executing task {node.action_type} on {node.target}",
                         node_id=node.id,
                     )
-                    await self.publisher.publish(create_mutation_applied_event(job.organization_id, job.repository_id, job.id, node.target, diff))
 
-                await self.session.flush()
+                    if node.action_type == "command":
+                        cmd_str = node.parameters.get("command", "")
+                        # Using Sandbox
+                        result = await self.sandbox.run_command(cmd_str.split(), cwd=node.target)
+
+                        if result.stdout:
+                            await self._log(job.id, job.organization_id, result.stdout, node_id=node.id)
+                        if result.stderr:
+                            await self._log(
+                                job.id,
+                                job.organization_id,
+                                result.stderr,
+                                node_id=node.id,
+                                stream="stderr",
+                            )
+
+                        if result.exit_code != 0:
+                            raise RuntimeError(f"Command failed with exit code {result.exit_code}")
+
+                    elif node.action_type == "edit_file":
+                        new_content = node.parameters.get("changes", "")
+                        diff = patch_engine.apply_patch(node.target, new_content)
+
+                        mutation = MutationModel(
+                            id=generate_id(),
+                            organization_id=job.organization_id,
+                            repository_id=job.repository_id,
+                            execution_job_id=job.id,
+                            task_node_id=node.id,
+                            file_path=node.target,
+                            mutation_type="UPDATE",
+                            diff_hunk=diff,
+                        )
+                        self.session.add(mutation)
+                        await self._log(
+                            job.id,
+                            job.organization_id,
+                            f"Applied patch to {node.target}",
+                            node_id=node.id,
+                        )
+                        await self.publisher.publish(create_mutation_applied_event(job.organization_id, job.repository_id, job.id, node.target, diff))
+
+                    await self.session.flush()
+
+            # Execute with timeout
+            await asyncio.wait_for(_execute_nodes(), timeout=self.settings.execution_timeout_seconds)
 
             job.status = ExecutionStatus.COMPLETED
             job.finished_at = datetime.now(UTC)
@@ -161,6 +166,16 @@ class ExecutionWorker:
 
             await self._log(job.id, job.organization_id, "Execution completed successfully.")
             await self.publisher.publish(create_execution_completed_event(job.organization_id, job.repository_id, job.id))
+            await self.session.commit()
+            
+        except asyncio.TimeoutError:
+            job.status = ExecutionStatus.FAILED
+            job.finished_at = datetime.now(UTC)
+            job.error_message = f"Execution timed out after {self.settings.execution_timeout_seconds} seconds."
+            plan.status = PlanStatus.FAILED
+
+            await self._log(job.id, job.organization_id, job.error_message, level="ERROR")
+            await self.publisher.publish(create_execution_failed_event(job.organization_id, job.repository_id, job.id, job.error_message))
             await self.session.commit()
 
         except Exception as e:

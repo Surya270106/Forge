@@ -79,76 +79,80 @@ export default function ProviderSettingsPage() {
 
   if (loading) return (
     <AppShell>
-      <div className="flex flex-col items-center justify-center py-24 text-slate-500 gap-3">
+      <div className="flex flex-col items-center justify-center py-32 text-slate-500 gap-4">
         <Loader2 className="w-6 h-6 animate-spin text-blue-500" /> 
-        <span className="font-medium">Loading settings...</span>
+        <span className="font-medium text-sm">Loading settings...</span>
       </div>
     </AppShell>
   );
 
   return (
     <AppShell>
-      <div className="mb-8 max-w-2xl">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 mb-2">AI Provider Configuration</h1>
+      <div className="mb-8 max-w-[640px]">
+        <h1 className="text-[clamp(32px,3vw,44px)] font-semibold tracking-tight text-slate-900 mb-2 leading-tight">AI Provider Configuration</h1>
         <p className="text-slate-500">Configure the language model provider Forge AI will use during planning and code execution.</p>
       </div>
 
-      <Card className="max-w-2xl">
-        <CardContent className="p-8 space-y-8">
-          <div>
-            <label className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-              <Cpu className="w-4 h-4 text-slate-400" /> Provider
-            </label>
-            <select 
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-medium appearance-none"
-            >
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="google">Google Gemini</option>
-            </select>
-          </div>
+      <Card className="max-w-[640px] border-forge-line shadow-sm overflow-hidden bg-white/90 backdrop-blur-md">
+        <CardContent className="p-0">
+          <div className="p-6 md:p-8 space-y-7">
+            <div>
+              <label className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-slate-400" /> Provider
+              </label>
+              <select 
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                className="w-full h-[42px] bg-slate-50 border border-slate-200 rounded-xl px-4 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium appearance-none shadow-sm"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-              <Key className="w-4 h-4 text-slate-400" /> API Key
-            </label>
-            <input 
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={apiKey.startsWith("sk-") ? "••••••••••••••••••••••••" : "Enter your API key"}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono shadow-sm"
-            />
-            <p className="text-xs text-slate-500 mt-2 font-medium">Keys are encrypted at rest and never exposed to the sandbox execution environment.</p>
-          </div>
+            <div>
+              <label className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                <Key className="w-4 h-4 text-slate-400" /> API Key
+              </label>
+              <input 
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={apiKey.startsWith("sk-") ? "••••••••••••••••••••••••" : "Enter your API key"}
+                className="w-full h-[42px] bg-slate-50 border border-slate-200 rounded-xl px-4 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono shadow-sm"
+              />
+              <p className="text-[11px] text-slate-500 mt-2.5 font-medium">Keys are encrypted at rest and never exposed to the sandbox execution environment.</p>
+            </div>
 
-          <div>
-            <label className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">Default Model</label>
-            <input 
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="e.g. gpt-4o, claude-3-5-sonnet"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono text-sm shadow-sm"
-            />
+            <div>
+              <label className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">Default Model</label>
+              <input 
+                type="text"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="e.g. gpt-4o, claude-3-5-sonnet"
+                className="w-full h-[42px] bg-slate-50 border border-slate-200 rounded-xl px-4 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono shadow-sm"
+              />
+            </div>
           </div>
           
-          <div className="pt-8 border-t border-slate-100 flex items-center justify-between">
-            <div className="h-6">
+          <div className="p-6 md:p-8 pt-0 flex items-center justify-between">
+            <div className="h-6 flex items-center min-w-0 pr-4">
               {success && (
-                <span className="text-green-600 text-sm font-medium flex items-center gap-2 animate-in fade-in duration-300">
-                  <CheckCircle className="w-4 h-4" /> Settings saved successfully
+                <span className="text-emerald-600 text-[13px] font-medium flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-300">
+                  <CheckCircle className="w-4 h-4" /> Configuration saved
                 </span>
               )}
             </div>
             <Button 
               onClick={handleSave}
               disabled={saving || !apiKey}
+              variant="primary"
+              className="shrink-0"
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-              Save Configuration
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? "Saving..." : "Save Configuration"}
             </Button>
           </div>
         </CardContent>

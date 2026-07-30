@@ -6,15 +6,27 @@ import { Github } from "lucide-react";
 import { Button } from "../components/ui/button";
 
 export default function LoginPage() {
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
   const handleGithubLogin = async () => {
     try {
+      setIsLoading(true);
+      setError(null);
       const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/github/login`);
+      if (!res.ok) {
+        throw new Error("Backend connection failed");
+      }
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else {
+        throw new Error("Invalid response from server");
       }
     } catch (err) {
       console.error("Failed to fetch login url", err);
+      setError("Failed to connect to the authentication server. Please try again.");
+      setIsLoading(false);
     }
   };
 
@@ -33,13 +45,23 @@ export default function LoginPage() {
           <p className="text-slate-500 font-medium">Autonomous Software Engineering Platform</p>
         </div>
         
-        <div className="w-full pt-4">
+        <div className="w-full pt-4 flex flex-col gap-3">
+          {error && (
+            <div className="text-sm text-red-500 bg-red-50 p-3 rounded-lg border border-red-200">
+              {error}
+            </div>
+          )}
           <Button
             onClick={handleGithubLogin}
-            className="w-full !min-h-14 !text-base bg-[#18181b] hover:bg-[#27272a] shadow-xl shadow-slate-900/10 border border-slate-800"
+            disabled={isLoading}
+            className="w-full !min-h-14 !text-base bg-[#18181b] hover:bg-[#27272a] shadow-xl shadow-slate-900/10 border border-slate-800 disabled:opacity-70"
           >
-            <Github className="w-5 h-5 mr-2" />
-            Continue with GitHub
+            {isLoading ? (
+              <span className="w-5 h-5 mr-2 border-2 border-slate-400 border-t-white rounded-full animate-spin"></span>
+            ) : (
+              <Github className="w-5 h-5 mr-2" />
+            )}
+            {isLoading ? "Connecting..." : "Continue with GitHub"}
           </Button>
         </div>
         

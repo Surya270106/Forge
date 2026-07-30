@@ -20,15 +20,15 @@ function CallbackHandler() {
     router.push("/");
   }, [searchParams, router]);
 
-  return <div className="text-blue-400 animate-pulse">Authenticating...</div>;
+  return <div className="app-loading"><span className="loading-orbit" />Securing workspace</div>;
 }
 
 export default function CallbackPage() {
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Suspense fallback={<div>Loading...</div>}>
+    <main className="login-callback">
+      <Suspense fallback={<div className="app-loading">Loading workspace</div>}>
         <CallbackHandler />
       </Suspense>
-    </div>
+    </main>
   );
 }

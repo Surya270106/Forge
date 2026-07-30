@@ -69,6 +69,7 @@ class PlanningService:
         planner = AIPlanner(self.session, self.organization_id, plan.id)
         nodes, edges = await planner.build_plan(repository_id, intent)
         self.session.add_all(nodes)
+        await self.session.flush()
         self.session.add_all(edges)
         await self.session.flush()
 

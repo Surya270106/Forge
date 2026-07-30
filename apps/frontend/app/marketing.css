@@ -203,9 +203,7 @@
     position: relative;
     z-index: 2;
     display: grid;
-    min-height: 970px;
-    height: 100svh;
-    max-height: 1080px;
+    height: 100vh;
     padding: 122px 40px 34px;
     overflow: hidden;
     align-items: center;

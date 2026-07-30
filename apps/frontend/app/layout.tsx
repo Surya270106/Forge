@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
+import "../../../forge-antigravity-ui-overhaul-v2/reference-ui/app/globals.css";
+import "./workspace.css";
 import BlobScene from "./components/blob-scene";
 
 const inter = Inter({
@@ -14,8 +16,8 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forge AI Workspace",
-  description: "Autonomous software engineering platform",
+  title: "Forge — Intent to verified change",
+  description: "Plan, execute, and verify repository changes with Forge.",
 };
 
 export default function RootLayout({
@@ -26,11 +28,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${robotoMono.variable} antialiased`}>
-        <div className="forge-app relative min-h-screen">
+        <div className="forge-app">
           <BlobScene />
-          <div className="relative z-10 flex min-h-screen w-full flex-col">
-            {children}
-          </div>
+          {children}
         </div>
       </body>
     </html>

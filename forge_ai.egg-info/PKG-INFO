@@ -18,6 +18,7 @@ Requires-Dist: pytokens>=0.4.1
 Requires-Dist: PyJWT>=2.8.0
 Requires-Dist: pyyaml>=6.0.3
 Requires-Dist: orjson
+Requires-Dist: litellm>=1.0.0
 Requires-Dist: tenacity
 Requires-Dist: uuid7
 Requires-Dist: jinja2>=3.1.6

@@ -59,7 +59,13 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
     latest_jobs = {}
     for job in jobs:
         if job.repository_id not in latest_jobs:
-            latest_jobs[job.repository_id] = job.status.value
+            progress = 0
+            if getattr(job, 'total_files', 0) > 0:
+                progress = int((job.files_processed / job.total_files) * 100)
+            latest_jobs[job.repository_id] = {
+                "status": job.status.value,
+                "progress": progress
+            }
 
     return {
         "repositories": [
@@ -71,7 +77,8 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
                 "status": repo.status.value,
                 "default_branch": repo.default_branch,
                 "created_at": repo.created_at.isoformat() if repo.created_at else None,
-                "indexing_status": latest_jobs.get(repo.id, "NEEDS_INDEXING"),
+                "indexing_status": latest_jobs.get(repo.id, {}).get("status", "NEEDS_INDEXING"),
+                "indexing_progress": latest_jobs.get(repo.id, {}).get("progress", 0),
             }
             for repo in repos
         ]

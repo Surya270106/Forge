@@ -71,10 +71,25 @@ async def run_worker():
             coordinator = IndexingCoordinator(session)
             await coordinator.execute_job(job_id)
 
+    async def handle_verification(event_data: dict, session):
+        import json
+        from services.verification.service import VerificationDispatcher
+        payload_str = event_data.get("payload", "{}")
+        payload = json.loads(payload_str) if isinstance(payload_str, str) else payload_str
+        job_id_str = payload.get("verification_job_id") or payload.get("job_id")
+        org_id_str = payload.get("organization_id")
+        if job_id_str and org_id_str:
+            job_id = UUID(job_id_str)
+            org_id = UUID(org_id_str)
+            logger.info("Starting verification job", job_id=str(job_id))
+            dispatcher = VerificationDispatcher(session, org_id, settings)
+            await dispatcher.run_verification(job_id)
+
     # Register handlers for available events
     event_worker.register_handler("repository.import_started", handle_import)
     event_worker.register_handler("repository.memory.indexing_requested", handle_indexing)
     event_worker.register_handler("execution.started", handle_execution)
+    event_worker.register_handler("verification.requested", handle_verification)
 
     from services.verification.repair_worker import handle_repair_attempted
     event_worker.register_handler("verification.repair_attempted", handle_repair_attempted)

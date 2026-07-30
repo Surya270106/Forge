@@ -1,74 +1,41 @@
-'use client';
+"use client";
 
-import React from "react";
+import { useState } from "react";
 import { env } from "../../config/env";
-import { Github } from "lucide-react";
-import { Button } from "../components/ui/button";
 
 export default function LoginPage() {
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const handleGithubLogin = async () => {
+  const [connecting, setConnecting] = useState(false);
+  const connect = async () => {
+    setConnecting(true);
     try {
-      setIsLoading(true);
-      setError(null);
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/github/login`);
-      if (!res.ok) {
-        throw new Error("Backend connection failed");
-      }
-      const data = await res.json();
-      if (data.url) {
+      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/github/login`);
+      const data = await response.json();
+      if (!data.url) throw new Error("Missing authorization URL");
+      try {
         window.location.href = data.url;
-      } else {
-        throw new Error("Invalid response from server");
+      } catch (e) {
+        window.open(data.url, "_blank");
       }
-    } catch (err) {
-      console.error("Failed to fetch login url", err);
-      setError("Failed to connect to the authentication server. Please try again.");
-      setIsLoading(false);
+      // Fallback if location.href is silently blocked
+      setTimeout(() => {
+        window.open(data.url, "_blank");
+      }, 500);
+    } catch (error) {
+      console.error(error); window.alert("Forge could not begin GitHub authentication."); setConnecting(false);
     }
   };
-
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-slate-50 overflow-hidden relative">
-      {/* Background decorations matching the Forge aesthetic */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-100 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
-      
-      <div className="relative z-10 flex flex-col items-center gap-8 p-12 bg-white/70 backdrop-blur-xl border border-slate-200/60 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] max-w-md w-full text-center">
-        <div className="w-20 h-20 bg-gradient-to-tr from-blue-600 to-blue-400 flex items-center justify-center rounded-2xl shadow-lg shadow-blue-500/20 mb-2">
-          <span className="text-4xl text-white font-bold leading-none tracking-tighter brand-mark relative top-0">F</span>
+    <main className="login-shell">
+      <header className="site-header login-header"><div className="brand"><span className="brand-mark">F</span><strong>Forge</strong></div><span>GitHub-connected engineering workspace</span></header>
+      <section className="hero login-hero" aria-labelledby="login-title">
+        <div className="hero-copy">
+          <p className="eyebrow"><span />Intent to verified change</p>
+          <h1 id="login-title"><span>Enter the</span><span>Forge.</span></h1>
+          <p className="hero-description">Connect GitHub to import repositories, inspect plans, and keep execution evidence attached to every change.</p>
+          <div className="hero-actions"><button type="button" className="button button-primary login-action" onClick={connect} disabled={connecting}>{connecting ? "Connecting…" : "Continue with GitHub"} <span>↗</span></button></div>
         </div>
-        
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-3">Welcome to Forge</h1>
-          <p className="text-slate-500 font-medium">Autonomous Software Engineering Platform</p>
-        </div>
-        
-        <div className="w-full pt-4 flex flex-col gap-3">
-          {error && (
-            <div className="text-sm text-red-500 bg-red-50 p-3 rounded-lg border border-red-200">
-              {error}
-            </div>
-          )}
-          <Button
-            onClick={handleGithubLogin}
-            disabled={isLoading}
-            className="w-full !min-h-14 !text-base bg-[#18181b] hover:bg-[#27272a] shadow-xl shadow-slate-900/10 border border-slate-800 disabled:opacity-70"
-          >
-            {isLoading ? (
-              <span className="w-5 h-5 mr-2 border-2 border-slate-400 border-t-white rounded-full animate-spin"></span>
-            ) : (
-              <Github className="w-5 h-5 mr-2" />
-            )}
-            {isLoading ? "Connecting..." : "Continue with GitHub"}
-          </Button>
-        </div>
-        
-        <p className="text-xs text-slate-400 font-medium mt-4">
-          By signing in, you agree to our Terms of Service and Privacy Policy.
-        </p>
-      </div>
-    </div>
+        <div className="hero-proof">{["Import", "Understand", "Plan", "Execute", "Verify"].map((stage, index) => <span key={stage}><i>{String(index + 1).padStart(2, "0")}</i>{stage}</span>)}</div>
+      </section>
+    </main>
   );
 }

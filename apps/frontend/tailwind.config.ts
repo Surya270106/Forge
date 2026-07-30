@@ -21,6 +21,13 @@ const config: Config = {
         success: "oklch(var(--success) / <alpha-value>)",
         warning: "oklch(var(--warning) / <alpha-value>)",
         danger: "oklch(var(--danger) / <alpha-value>)",
+        "forge-line": "rgba(203, 220, 242, 0.9)",
+      },
+      boxShadow: {
+        "forge": "0 18px 60px rgba(18, 71, 150, 0.08)",
+      },
+      transitionTimingFunction: {
+        "forge": "cubic-bezier(0.22, 1, 0.36, 1)",
       },
       borderRadius: {
         xs: "4px",

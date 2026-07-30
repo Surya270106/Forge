@@ -8,13 +8,13 @@ export function Badge({ className = '', variant = 'default', ...props }: BadgePr
   let variantClass = '';
   switch (variant) {
     case 'success':
-      variantClass = 'bg-green-100 text-green-700 border-green-200';
+      variantClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
       break;
     case 'warning':
-      variantClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      variantClass = 'bg-amber-50 text-amber-700 border-amber-200';
       break;
     case 'destructive':
-      variantClass = 'bg-red-100 text-red-700 border-red-200';
+      variantClass = 'bg-red-50 text-red-700 border-red-200';
       break;
     case 'outline':
       variantClass = 'bg-transparent text-slate-600 border-slate-300';

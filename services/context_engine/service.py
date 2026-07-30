@@ -39,14 +39,25 @@ class ContextAssembler:
                 SymbolModel.organization_id == self.organization_id,
                 SymbolModel.repository_id == repository_id,
             )
-            .limit(10)
+            .limit(20)
         )
-
         symbols = (await self.session.execute(stmt)).scalars().all()
+
+        from packages.database.models.memory import SourceFileModel
+        file_stmt = (
+            select(SourceFileModel)
+            .where(
+                SourceFileModel.organization_id == self.organization_id,
+                SourceFileModel.repository_id == repository_id,
+            )
+            .limit(50)
+        )
+        files = (await self.session.execute(file_stmt)).scalars().all()
 
         return {
             "query": query,
             "symbols": [{"name": s.name, "file_path": str(s.source_file_id), "kind": s.symbol_type} for s in symbols],
+            "files": [{"path": f.file_path} for f in files],
         }
 
 
@@ -83,7 +94,7 @@ class AgentOrchestrator:
             # Fallback mock template if none exist
             template = PromptTemplateModel(
                 name=template_name,
-                template_text="Please solve the user query.",
+                template_text="Please solve the user query.\n\nQuery: {{ query }}\n\nReturn the result in JSON format.",
                 default_provider=ModelProvider.LOCAL,
                 default_model="mock-model",
             )
@@ -109,18 +120,26 @@ class AgentOrchestrator:
 
         await self.publisher.publish(create_context_assembled_event(self.organization_id, repository_id, snapshot.id, plan_id))
 
-        # 5. Invoke LLM (Real Implementation)
-
-        import httpx
-
+        # 5. Invoke LLM (Real Implementation using LiteLLM)
+        from litellm import acompletion
+        from litellm.exceptions import APIError, APIConnectionError, RateLimitError
         from packages.database.models.auth import OrganizationModel
         from packages.shared.crypto import CryptoService
 
         org = await self.session.get(OrganizationModel, self.organization_id)
         provider_config = org.provider_config or {} if org else {}
         api_key = CryptoService.decrypt(provider_config.get("api_key", ""))
+        # For litellm, model names often include the provider e.g. "groq/llama3-8b-8192" or "anthropic/claude-3-opus-20240229"
+        # If the model name doesn't include the provider, we can format it.
         provider = provider_config.get("provider", "openai").lower()
-        model_name = provider_config.get("model", "gpt-4o")
+        base_model_name = provider_config.get("model", "gpt-4o")
+        
+        # Format model string for litellm if it's not already prefixed
+        if "/" not in base_model_name and provider != "openai":
+            model_name = f"{provider}/{base_model_name}"
+        else:
+            model_name = base_model_name
+
         budget_usd = float(provider_config.get("budget_usd", 100.0))
         spend_usd = float(provider_config.get("spend_usd", 0.0))
 
@@ -136,37 +155,21 @@ class AgentOrchestrator:
                 '{"nodes": [{"id": "install", "type": "command", "target": "workspace", "parameters": {"command": "echo mock"}}], "edges": []}'
             )
         else:
-            async with httpx.AsyncClient() as client:
-                if provider == "openai":
-                    resp = await client.post(
-                        "https://api.openai.com/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        json={
-                            "model": model_name,
-                            "messages": [{"role": "user", "content": rendered_prompt}],
-                            "response_format": {"type": "json_object"},
-                        },
-                        timeout=60.0,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        response_text = data["choices"][0]["message"]["content"]
-                    else:
-                        raise Exception(f"OpenAI error: {resp.text}")
-                elif provider == "anthropic":
-                    resp = await client.post(
-                        "https://api.anthropic.com/v1/messages",
-                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                        json={"model": model_name, "max_tokens": 4000, "messages": [{"role": "user", "content": rendered_prompt}]},
-                        timeout=60.0,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        response_text = data["content"][0]["text"]
-                    else:
-                        raise Exception(f"Anthropic error: {resp.text}")
-                else:
-                    raise Exception(f"Unsupported provider: {provider}")
+            try:
+                # Set the API key dynamically for this request
+                # LiteLLM automatically handles mapping the api key to the right header
+                # We can pass `api_key` directly to acompletion
+                response = await acompletion(
+                    model=model_name,
+                    messages=[{"role": "user", "content": rendered_prompt}],
+                    api_key=api_key,
+                    response_format={"type": "json_object"} if "openai" in provider or "groq" in provider else None,
+                )
+                response_text = response.choices[0].message.content or ""
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                raise Exception(f"LLM API Error: {str(e)}")
+            except Exception as e:
+                raise Exception(f"Unexpected error calling litellm: {str(e)}")
 
         # 6. Save Interaction
         interaction = AgentInteractionModel(
@@ -174,7 +177,7 @@ class AgentOrchestrator:
             organization_id=self.organization_id,
             repository_id=repository_id,
             context_snapshot_id=snapshot.id,
-            provider=provider,
+            provider=ModelProvider(provider.upper()),
             model=model_name,
             response_text=response_text,
             tool_calls=tool_calls,

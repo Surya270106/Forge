@@ -13,6 +13,7 @@ class ModelProvider(StrEnum):
     ANTHROPIC = "ANTHROPIC"
     OPENAI = "OPENAI"
     GOOGLE = "GOOGLE"
+    GROQ = "GROQ"
     LOCAL = "LOCAL"
 
 

@@ -56,6 +56,10 @@ class VerificationDispatcher:
             execution_job_id=execution_job_id,
         )
         self.session.add(job)
+        
+        from .events import create_verification_requested_event
+        await self.publisher.publish(create_verification_requested_event(self.organization_id, job.repository_id, job.id, execution_job_id))
+        
         await self.session.commit()
         return job
 

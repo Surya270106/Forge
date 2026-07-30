@@ -1,143 +1,76 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from "react";
-import { env } from "../../config/env";
-import { Github, Loader2, Plus, ArrowLeft, Lock, Unlock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { env } from "../../config/env";
+import { AppShell } from "../components/AppShell";
+
+type GitHubRepository = { name: string; owner: string; description?: string; clone_url: string; default_branch?: string; is_private: boolean };
 
 export default function RepositoriesPage() {
-  const [githubRepos, setGithubRepos] = useState<any[]>([]);
+  const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const router = useRouter();
 
   useEffect(() => {
-    const fetchGithubRepos = async () => {
-      const token = localStorage.getItem("forge_token");
-      
-      try {
-        const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/github-repos`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setGithubRepos(data.repositories);
-        } else if (res.status === 401 || res.status === 400) {
-          // Token invalid or missing, redirect to login
-          router.push('/login');
-        }
-      } catch (err) {
-        console.error("Failed to fetch GitHub repos", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchGithubRepos();
+    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/github-repos`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}` },
+    }).then(async (response) => {
+      if (response.status === 401 || response.status === 400) { router.push("/login"); return; }
+      if (response.ok) { const data = await response.json(); setRepositories(data.repositories || []); }
+    }).catch(console.error).finally(() => setLoading(false));
   }, [router]);
 
-  const handleImport = async (repo: any) => {
-    const token = localStorage.getItem("forge_token");
+  const handleImport = async (repo: GitHubRepository) => {
     const orgId = localStorage.getItem("forge_org_id");
-    
-    if (!orgId) {
-      alert("No organization selected. Please wait or re-login.");
-      return;
-    }
-
+    if (!orgId) { window.alert("No workspace selected. Please sign in again."); return; }
     setImporting(repo.name);
     try {
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/import`, {
+      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/import`, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Organization-Id": orgId,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          clone_url: repo.clone_url,
-          owner: repo.owner,
-          name: repo.name,
-          branch: repo.default_branch || "main",
-          is_private: repo.is_private
-        })
+        headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": orgId, "Content-Type": "application/json" },
+        body: JSON.stringify({ clone_url: repo.clone_url, owner: repo.owner, name: repo.name, branch: repo.default_branch || "main", is_private: repo.is_private }),
       });
-      
-      if (res.ok) {
-        // Navigate back to dashboard where it should appear
-        router.push('/');
-      } else {
-        const err = await res.json();
-        alert(`Failed to import: ${err.detail}`);
-        setImporting(null);
+      if (response.ok) { 
+        const data = await response.json();
+        router.push(`/repositories/${data.repository_id}`); 
+        return; 
       }
-    } catch (err) {
-      console.error(err);
-      alert("An error occurred during import.");
-      setImporting(null);
-    }
+      const error = await response.json().catch(() => ({}));
+      window.alert(`Failed to import: ${error.detail || response.status}`);
+    } catch (error) { console.error(error); window.alert("An error occurred during import."); }
+    finally { setImporting(null); }
   };
 
-  return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <Link href="/" className="inline-flex items-center gap-2 text-muted hover:text-white transition-colors mb-6 text-sm font-medium">
-        <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-      </Link>
-      
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-white mb-2 flex items-center gap-3">
-          <Github className="w-8 h-8" /> Import from GitHub
-        </h1>
-        <p className="text-muted">Select a repository from your GitHub account to import into Forge AI.</p>
-      </div>
+  const filtered = useMemo(() => repositories.filter((repo) => `${repo.owner}/${repo.name}`.toLowerCase().includes(search.toLowerCase())), [repositories, search]);
 
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-accent" /> 
-          <p>Fetching your repositories from GitHub...</p>
-        </div>
-      ) : githubRepos.length === 0 ? (
-        <div className="bg-surface border border-border border-dashed rounded-xl p-12 text-center">
-          <p className="text-muted">No repositories found in your GitHub account.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {githubRepos.map(repo => (
-            <div key={repo.name} className="bg-surface border border-border rounded-xl p-5 flex items-center justify-between hover:border-accent/30 transition-colors">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h3 className="font-medium text-white text-lg">{repo.owner}/{repo.name}</h3>
-                  {repo.is_private ? (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider bg-gray-800 text-gray-400 flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Private
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider bg-gray-800 text-gray-400 flex items-center gap-1">
-                      <Unlock className="w-3 h-3" /> Public
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-muted">{repo.description || "No description provided."}</p>
-              </div>
-              
-              <button
-                onClick={() => handleImport(repo)}
-                disabled={importing === repo.name}
-                className="bg-white text-black hover:bg-gray-200 disabled:opacity-50 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                {importing === repo.name ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Importing...</>
-                ) : (
-                  <><Plus className="w-4 h-4" /> Import</>
-                )}
-              </button>
-            </div>
+  return (
+    <AppShell><div className="page-frame">
+      <Link href="/" className="back-link"><span>←</span> Workspace</Link>
+      <header className="page-intro">
+        <div className="section-label"><span>02</span>Repository ingress</div>
+        <h1>Bring the codebase<br />into context.</h1>
+        <p>Select a GitHub repository. Forge will import its source, preserve the default branch, and prepare it for indexing.</p>
+      </header>
+      <div className="page-toolbar">
+        <label className="search-field"><span>Search</span><input type="search" placeholder="Repository name or owner" value={search} onChange={(e) => setSearch(e.target.value)} /><i>⌕</i></label>
+        <span className="toolbar-count">{loading ? "—" : String(filtered.length).padStart(2, "0")} available</span>
+      </div>
+      <section className="data-ledger" aria-label="GitHub repositories">
+        <div className="data-ledger-head repo-ledger-grid"><span>Repository</span><span>Visibility</span><span>Branch</span><span>Action</span></div>
+        {loading ? <div className="data-state"><span className="loading-orbit" />Reading GitHub repositories</div> :
+          filtered.length === 0 ? <div className="data-state">{repositories.length ? "No repositories match this search." : "No repositories were returned by GitHub."}</div> :
+          filtered.map((repo, index) => (
+            <article className="data-row repo-ledger-grid" key={`${repo.owner}/${repo.name}`}>
+              <div className="data-primary"><i>{String(index + 1).padStart(2, "0")}</i><div><h2>{repo.owner}/{repo.name}</h2><p>{repo.description || "No description provided."}</p></div></div>
+              <span className="mono-value">{repo.is_private ? "Private" : "Public"}</span><code>{repo.default_branch || "main"}</code>
+              <button className="row-action" type="button" disabled={importing === repo.name} onClick={() => handleImport(repo)}>{importing === repo.name ? "Importing…" : "Import"} <span>→</span></button>
+            </article>
           ))}
-        </div>
-      )}
-    </div>
+      </section>
+    </div></AppShell>
   );
 }

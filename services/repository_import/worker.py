@@ -71,11 +71,16 @@ class ImportWorker:
                 job.status = ImportJobStatus.PERSISTING
                 await session.commit()
 
+                from sqlalchemy import select
+                stmt = select(RepositoryManifestModel).where(RepositoryManifestModel.repository_id == repo.id).order_by(RepositoryManifestModel.version.desc())
+                prev_manifest = (await session.execute(stmt)).scalars().first()
+                new_version = (prev_manifest.version + 1) if prev_manifest else 1
+
                 manifest_model = RepositoryManifestModel(
                     id=generate_id(),
                     organization_id=repo.organization_id,
                     repository_id=repo.id,
-                    version=1,
+                    version=new_version,
                     manifest=manifest.to_dict(),
                 )
                 session.add(manifest_model)
@@ -91,6 +96,11 @@ class ImportWorker:
                 repo.status = RepositoryStatus.READY
                 await session.commit()
 
+                # Automatically trigger indexing
+                from services.repository_memory.service import MemoryService
+                memory_service = MemoryService(session, repo.organization_id)
+                await memory_service.start_indexing(repo.id, branch=job.branch)
+
                 log.info("import_completed_successfully")
 
             except Exception as e:
@@ -104,7 +114,11 @@ class ImportWorker:
 
     async def _clone_repository(self, clone_url: str, branch: str, target_dir: str) -> None:
         if os.path.exists(target_dir):
-            shutil.rmtree(target_dir)
+            def remove_readonly(func, path, _):
+                import stat
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            shutil.rmtree(target_dir, onerror=remove_readonly)
         os.makedirs(os.path.dirname(target_dir), exist_ok=True)
 
         proc = await asyncio.create_subprocess_exec(

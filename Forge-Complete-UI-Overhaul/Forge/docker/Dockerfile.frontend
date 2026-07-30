@@ -1,0 +1,50 @@
+FROM node:24-alpine3.21 AS dependencies
+
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY apps/frontend/package.json apps/frontend/package-lock.json ./
+
+RUN npm ci
+
+
+FROM node:24-alpine3.21 AS builder
+
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY apps/frontend ./
+
+# Guarantee the optional public directory exists so the runtime copy is
+# deterministic even when the application has no public assets yet.
+RUN mkdir -p public
+
+RUN npm run build
+
+# Fail during the builder stage with a direct diagnostic if standalone
+# output was not generated.
+RUN test -f .next/standalone/server.js
+
+
+FROM node:24-alpine3.21 AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+# Use the non-root user already supplied by the official Node image.
+USER node
+
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

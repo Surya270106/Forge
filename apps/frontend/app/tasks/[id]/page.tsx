@@ -1,102 +1,210 @@
 'use client';
 
-import React, { useEffect, useState } from "react";
-import { env } from "../../../config/env";
-import { CheckCircle, Play, Loader2, GitMerge, FileCode, Check, X, RefreshCcw, Activity } from "lucide-react";
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, Check, LoaderCircle, Play } from 'lucide-react';
+
+import { env } from '../../../config/env';
+import { AppShell } from '../../components/AppShell';
+
+type PlanNode = {
+  id: string;
+  action_type: string;
+  target: string;
+  parameters: Record<string, unknown>;
+};
+
+type Plan = {
+  id: string;
+  repository_id: string;
+  status: string;
+  intent: string;
+  nodes: PlanNode[];
+  created_at?: string;
+};
+
+type Mutation = {
+  id: string;
+  file_path: string;
+  mutation_type: string;
+  diff_hunk: string;
+};
+
+type ActiveTab = 'plan' | 'execution';
+
+function nodeTitle(node: PlanNode) {
+  if (node.action_type === 'edit_file') return `Edit ${node.target}`;
+  if (node.action_type === 'command') return `Run command in ${node.target}`;
+  return `${node.action_type.replaceAll('_', ' ')} · ${node.target}`;
+}
+
+function nodeDetail(node: PlanNode) {
+  const changes = node.parameters?.changes;
+  const command = node.parameters?.command;
+
+  if (typeof changes === 'string') return changes;
+  if (typeof command === 'string') return command;
+  return JSON.stringify(node.parameters, null, 2);
+}
 
 export default function TaskPage({ params }: { params: { id: string } }) {
-  const [plan, setPlan] = useState<any>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
   const [executionStatus, setExecutionStatus] = useState<string | null>(null);
-  const [mutations, setMutations] = useState<any[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [mutations, setMutations] = useState<Mutation[]>([]);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('plan');
+  const [error, setError] = useState('');
 
-  const fetchExecution = async (execId: string) => {
-    const token = localStorage.getItem("forge_token");
-    const orgId = localStorage.getItem("forge_org_id");
+  const authHeaders = useCallback(() => {
+    const token = localStorage.getItem('forge_token');
+    const orgId = localStorage.getItem('forge_org_id');
+
+    return {
+      Authorization: `Bearer ${token}`,
+      'X-Organization-Id': orgId || '',
+    };
+  }, []);
+
+  const fetchPlan = useCallback(async () => {
     try {
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${execId}`, {
-        headers: { "Authorization": `Bearer ${token}`, "X-Organization-Id": orgId || "" }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setExecutionStatus(data.status);
-        if (data.status === "COMPLETED" || data.status === "FAILED") {
-          setExecuting(false);
-          const mutRes = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${execId}/mutations`, {
-            headers: { "Authorization": `Bearer ${token}`, "X-Organization-Id": orgId || "" }
-          });
-          if (mutRes.ok) {
-            const mutData = await mutRes.json();
-            setMutations(mutData.mutations);
-          }
-        }
-      }
-      const logsRes = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${execId}/logs`, {
-        headers: { "Authorization": `Bearer ${token}`, "X-Organization-Id": orgId || "" }
-      });
-      if (logsRes.ok) {
-        const logsData = await logsRes.json();
-        setLogs(logsData.map((l: any) => l.message));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+      const response = await fetch(
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}`,
+        { headers: authHeaders() },
+      );
 
-  useEffect(() => {
-    if (executionId && executing) {
-      const interval = setInterval(() => {
-        fetchExecution(executionId);
-      }, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [executionId, executing]);
-
-  const fetchPlan = async () => {
-    const token = localStorage.getItem("forge_token");
-    const orgId = localStorage.getItem("forge_org_id");
-    
-    try {
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Organization-Id": orgId || ""
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPlan(data);
-      }
-    } catch (err) {
-      console.error(err);
+      if (!response.ok) throw new Error('The plan could not be loaded.');
+      setPlan(await response.json());
+      setError('');
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'The plan could not be loaded.',
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [authHeaders, params.id]);
+
+  const fetchExecution = useCallback(
+    async (jobId: string) => {
+      try {
+        const [jobResponse, logsResponse] = await Promise.all([
+          fetch(
+            `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}`,
+            { headers: authHeaders() },
+          ),
+          fetch(
+            `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}/logs`,
+            { headers: authHeaders() },
+          ),
+        ]);
+
+        if (jobResponse.ok) {
+          const job = await jobResponse.json();
+          setExecutionStatus(job.status);
+
+          if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+            setExecuting(false);
+
+            const mutationResponse = await fetch(
+              `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}/mutations`,
+              { headers: authHeaders() },
+            );
+
+            if (mutationResponse.ok) {
+              const mutationPayload = await mutationResponse.json();
+              setMutations(mutationPayload.mutations || []);
+            }
+          }
+        }
+
+        if (logsResponse.ok) {
+          const logPayload = await logsResponse.json();
+          setLogs(
+            logPayload.map((entry: { message: string }) => entry.message),
+          );
+        }
+      } catch {
+        setExecuting(false);
+        setExecutionStatus('FAILED');
+        setError('The execution stream was interrupted.');
+      }
+    },
+    [authHeaders],
+  );
 
   useEffect(() => {
     fetchPlan();
-  }, [params.id]);
+  }, [fetchPlan]);
+
+  useEffect(() => {
+    if (!executionId || !executing) return;
+
+    fetchExecution(executionId);
+    
+    let wsUrl = env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+    wsUrl = wsUrl.replace(/^http/, 'ws') + `/api/v1/executions/${executionId}/ws`;
+    
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.message) {
+          setLogs((prev) => {
+            // Avoid duplicates
+            if (prev[prev.length - 1] === data.message) return prev;
+            return [...prev, data.message];
+          });
+          
+          if (
+            data.message === 'Execution completed successfully.' || 
+            data.message.includes('Triggered Repository Memory') ||
+            data.message.includes('Warning: Failed to trigger Memory') ||
+            data.message.includes('Execution timed out') || 
+            data.message.includes('Command failed')
+          ) {
+            // Fetch one last time to get mutations and final status
+            // Wait 2s to ensure worker has committed the transaction
+            setTimeout(() => fetchExecution(executionId), 2000);
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing websocket message', e);
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [executionId, executing, fetchExecution]);
 
   const handleApprove = async () => {
     setApproving(true);
+    setError('');
+
     try {
-      const token = localStorage.getItem("forge_token");
-      const orgId = localStorage.getItem("forge_org_id");
-      await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}/approve`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Organization-Id": orgId || ""
-        }
-      });
+      const response = await fetch(
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}/approve`,
+        {
+          method: 'POST',
+          headers: authHeaders(),
+        },
+      );
+
+      if (!response.ok) throw new Error('Forge could not approve this plan.');
       await fetchPlan();
-    } catch (err) {
-      console.error(err);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Forge could not approve this plan.',
+      );
     } finally {
       setApproving(false);
     }
@@ -104,177 +212,293 @@ export default function TaskPage({ params }: { params: { id: string } }) {
 
   const handleExecute = async () => {
     setExecuting(true);
-    setLogs(["Starting execution engine..."]);
+    setExecutionStatus('PENDING');
+    setLogs(['Starting the isolated execution engine...']);
+    setMutations([]);
+    setError('');
+    setActiveTab('execution');
+
     try {
-      const token = localStorage.getItem("forge_token");
-      const orgId = localStorage.getItem("forge_org_id");
-      const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${params.id}`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Organization-Id": orgId || "",
-          "Content-Type": "application/json"
+      const response = await fetch(
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${params.id}`,
+        {
+          method: 'POST',
+          headers: {
+            ...authHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
         },
-        body: JSON.stringify({})
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setExecutionId(data.id);
-        setExecutionStatus("PENDING");
-      }
-    } catch (err) {
-      console.error(err);
+      );
+
+      if (!response.ok) throw new Error('Forge could not start this execution.');
+      const execution = await response.json();
+      setExecutionId(execution.id);
+      setExecutionStatus(execution.status || 'PENDING');
+    } catch (requestError) {
       setExecuting(false);
-      setExecutionStatus("FAILED");
+      setExecutionStatus('FAILED');
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Forge could not start this execution.',
+      );
     }
   };
 
-  if (loading) return <div className="p-8 animate-pulse text-muted">Loading plan...</div>;
-  if (!plan) return <div className="p-8 text-red-400">Plan not found.</div>;
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="page-frame full-page-state data-state">
+          <LoaderCircle aria-hidden="true" size={20} className="loading-orbit" />
+          Resolving execution plan
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <AppShell>
+        <div className="page-frame full-page-state data-state">
+          {error || 'Plan not found.'}
+        </div>
+      </AppShell>
+    );
+  }
+
+  const status = executionStatus || plan.status;
+  const canApprove = plan.status === 'PENDING_APPROVAL';
+  const canExecute = plan.status === 'APPROVED' && executionStatus === null;
 
   return (
-    <div className="p-8 max-w-6xl mx-auto flex flex-col gap-8 h-full overflow-hidden">
-      <div className="flex items-start justify-between shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Activity className="w-8 h-8 text-accent" />
-            <h1 className="text-3xl font-bold tracking-tight text-white">Execution Plan</h1>
+    <AppShell>
+      <main className="page-frame">
+        <Link href={`/repositories/${plan.repository_id}`} className="back-link">
+          <ArrowLeft aria-hidden="true" size={15} />
+          Back to repository
+        </Link>
+
+        <section className="plan-header">
+          <div className="eyebrow">
+            <span />
+            Execution plan
           </div>
-          <p className="text-muted">Intent: {plan.intent}</p>
-        </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${plan.status === 'APPROVED' ? 'bg-blue-900/30 text-blue-400 border border-blue-900/50' : 'bg-yellow-900/30 text-yellow-400 border border-yellow-900/50'}`}>
-          {plan.status}
-        </span>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden min-h-0">
-        
-        {/* Left Column: Plan Details */}
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2">
-          <div className="bg-surface border border-border rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center justify-between">
-              Task Graph
-            </h2>
-            <div className="space-y-4">
-              {plan.nodes?.length > 0 ? plan.nodes.map((node: any, idx: number) => (
-                <div key={node.id} className="border border-border rounded-lg p-4 bg-black relative pl-12">
-                  <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-xs font-bold">
-                    {idx + 1}
-                  </div>
-                  <h3 className="font-medium text-white mb-1">{node.description}</h3>
-                  <div className="flex gap-2">
-                    <span className="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded uppercase">{node.status}</span>
-                    <span className="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded uppercase">{node.type}</span>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-sm font-mono text-gray-400 p-4 bg-black rounded-lg">
-                  {JSON.stringify(plan, null, 2)}
-                </div>
-              )}
-            </div>
+          {plan.intent.length > 100 ? (
+            <details className="plan-intent-details">
+              <summary>
+                <h1 className="long-intent">
+                  {plan.intent.substring(0, 100)}... <span>(Show full intent)</span>
+                </h1>
+              </summary>
+              <div className="intent-full">
+                <p>{plan.intent}</p>
+              </div>
+            </details>
+          ) : (
+            <h1>{plan.intent}</h1>
+          )}
 
-            {plan.status === "PENDING_APPROVAL" && (
-              <div className="mt-8 border-t border-border pt-6 flex justify-end gap-3">
-                <button className="px-4 py-2 text-muted hover:text-white transition-colors">
-                  Reject
-                </button>
-                <button 
+          <div className="plan-state">
+            <i>Current state</i>
+            <strong>{status.replaceAll('_', ' ')}</strong>
+            <code>{plan.id.slice(0, 12)}</code>
+          </div>
+        </section>
+
+        <nav className="segment-nav plan-segment-nav" aria-label="Plan views">
+          <button
+            type="button"
+            className={activeTab === 'plan' ? 'is-active' : ''}
+            onClick={() => setActiveTab('plan')}
+          >
+            <span>01</span>
+            Plan architecture
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'execution' ? 'is-active' : ''}
+            onClick={() => setActiveTab('execution')}
+          >
+            <span>02</span>
+            Execution stream
+          </button>
+        </nav>
+
+        {error && <p className="form-message form-error">{error}</p>}
+
+        {activeTab === 'plan' ? (
+          <section className="plan-map">
+            <div className="plan-map-intro">
+              <span>Verified action graph</span>
+              <h2>Inspect every move before code changes.</h2>
+              <p>
+                Forge translates the intent into an explicit, reviewable sequence.
+                Nothing enters the execution environment until you approve it.
+              </p>
+
+              {canApprove && (
+                <button
+                  type="button"
+                  className="button button-white"
                   onClick={handleApprove}
                   disabled={approving}
-                  className="bg-accent hover:bg-accent/90 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
                 >
-                  {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  Approve Plan
+                  {approving ? (
+                    <LoaderCircle aria-hidden="true" size={16} />
+                  ) : (
+                    <Check aria-hidden="true" size={16} />
+                  )}
+                  {approving ? 'Approving' : 'Approve plan'}
                 </button>
-              </div>
-            )}
-            
-            {plan.status === "APPROVED" && executionStatus === null && (
-              <div className="mt-8 border-t border-border pt-6 flex justify-end">
-                <button 
+              )}
+
+              {canExecute && (
+                <button
+                  type="button"
+                  className="button button-white"
                   onClick={handleExecute}
                   disabled={executing}
-                  className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
                 >
-                  <Play className="w-4 h-4" /> Start Execution
+                  <Play aria-hidden="true" size={15} />
+                  Start execution
                 </button>
-              </div>
-            )}
-          </div>
-        </div>
+              )}
 
-        {/* Right Column: Execution */}
-        <div className="flex flex-col gap-6 overflow-hidden">
-          <div className="bg-surface border border-border rounded-xl flex flex-col h-full overflow-hidden">
-            <div className="p-4 border-b border-border bg-black/50 shrink-0 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                <FileCode className="w-4 h-4 text-accent" /> Execution Logs
-              </h2>
               {executionStatus && (
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase ${executionStatus === 'COMPLETED' ? 'bg-green-900/30 text-green-400' : 'bg-blue-900/30 text-blue-400'}`}>
-                  {executionStatus}
-                </span>
+                <button
+                  type="button"
+                  className="button button-white"
+                  onClick={() => setActiveTab('execution')}
+                >
+                  View execution
+                  <span aria-hidden="true">↗</span>
+                </button>
               )}
             </div>
-            
-            <div className="p-4 flex-1 bg-black overflow-y-auto font-mono text-sm leading-relaxed">
-              {logs.length === 0 ? (
-                <div className="text-gray-600 h-full flex items-center justify-center italic">
-                  Awaiting execution...
-                </div>
+
+            <div className="plan-node-list">
+              {plan.nodes?.length ? (
+                plan.nodes.map((node, index) => (
+                  <article key={node.id} className="plan-node">
+                    <div>
+                      <span>{String(index + 1).padStart(2, '0')}</span>
+                      <i>{node.action_type.replaceAll('_', ' ')}</i>
+                    </div>
+                    <h3>{nodeTitle(node)}</h3>
+                    <pre>{nodeDetail(node)}</pre>
+                  </article>
+                ))
               ) : (
-                <div className="space-y-1">
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3 text-gray-300">
-                      <span className="text-gray-600 select-none shrink-0">{String(i+1).padStart(2, '0')}</span>
-                      <span className={log.includes("passed") || log.includes("completed") ? "text-green-400" : ""}>{log}</span>
-                    </div>
-                  ))}
-                  {executing && (
-                    <div className="flex gap-3 text-accent animate-pulse mt-2">
-                      <span className="text-gray-600 select-none shrink-0">--</span>
-                      <span>Processing...</span>
-                    </div>
-                  )}
-                </div>
+                <article className="plan-node">
+                  <div>
+                    <span>00</span>
+                    <i>Plan payload</i>
+                  </div>
+                  <h3>No discrete task nodes were returned.</h3>
+                  <pre>{JSON.stringify(plan, null, 2)}</pre>
+                </article>
               )}
             </div>
-            
-            {executionStatus === "COMPLETED" && (
-              <div className="p-4 border-t border-border bg-black/50 shrink-0 flex flex-col gap-4">
-                <span className="text-sm font-medium text-white flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-400" /> All mutations applied successfully.
-                </span>
-                
-                {mutations.length > 0 && (
-                  <div className="space-y-3 mt-2">
-                    <h3 className="text-xs font-semibold uppercase text-muted tracking-wider">File Changes</h3>
-                    {mutations.map(m => (
-                      <div key={m.id} className="border border-border rounded overflow-hidden">
-                        <div className="bg-surface px-3 py-1 text-xs font-medium text-white flex justify-between">
-                          <span>{m.file_path}</span>
-                          <span className="text-muted">{m.mutation_type}</span>
-                        </div>
-                        <div className="bg-black p-3 text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre">
-                          {m.diff_hunk}
-                        </div>
-                      </div>
-                    ))}
+          </section>
+        ) : (
+          <>
+            <section className="execution-console">
+              <header>
+                <div>
+                  <i />
+                  <i />
+                  <i />
+                  <span>Forge terminal // isolated execution</span>
+                </div>
+                <strong>{executionStatus || 'Awaiting launch'}</strong>
+              </header>
+
+              <div className="terminal-output" aria-live="polite">
+                {logs.length ? (
+                  logs.map((log, index) => (
+                    <div key={`${index}-${log}`}>
+                      <span>{String(index + 1).padStart(2, '0')}</span>
+                      <code>{log}</code>
+                    </div>
+                  ))
+                ) : (
+                  <p>
+                    No execution has started. Approve the action graph, then launch
+                    it from the plan architecture view.
+                  </p>
+                )}
+
+                {executing && (
+                  <div className="terminal-pulse">
+                    <span>--</span>
+                    <code>Processing next verified action...</code>
                   </div>
                 )}
-                
-                <div className="flex justify-end pt-2 border-t border-border mt-2">
-                  <button className="bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2">
-                    <GitMerge className="w-4 h-4" /> Create Pull Request
-                  </button>
-                </div>
               </div>
-            )}
-          </div>
-        </div>
 
-      </div>
-    </div>
+              <footer>
+                <p>
+                  Execution runs inside Forge&apos;s isolated environment. Status,
+                  logs, and resulting file mutations update here automatically.
+                </p>
+
+                {canExecute && (
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={handleExecute}
+                    disabled={executing}
+                  >
+                    <Play aria-hidden="true" size={15} />
+                    Start execution
+                  </button>
+                )}
+              </footer>
+            </section>
+
+            {executionStatus === 'COMPLETED' && (
+              <section className="mutation-section">
+                <div className="mutation-heading">
+                  <div className="eyebrow">
+                    <span />
+                    Applied mutations
+                  </div>
+                  <h2>Verified changes, file by file.</h2>
+                  <p>
+                    The execution finished successfully. Review the exact mutations
+                    produced by the approved plan.
+                  </p>
+                </div>
+
+                <div className="mutation-list">
+                  {mutations.length ? (
+                    mutations.map((mutation, index) => (
+                      <article key={mutation.id}>
+                        <header>
+                          <span>{String(index + 1).padStart(2, '0')}</span>
+                          <code>{mutation.file_path}</code>
+                          <i>{mutation.mutation_type}</i>
+                        </header>
+                        <pre>{mutation.diff_hunk}</pre>
+                      </article>
+                    ))
+                  ) : (
+                    <article>
+                      <header>
+                        <span>00</span>
+                        <code>No file mutations returned</code>
+                        <i>Complete</i>
+                      </header>
+                    </article>
+                  )}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </main>
+    </AppShell>
   );
 }

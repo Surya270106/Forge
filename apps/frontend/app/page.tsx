@@ -1,116 +1,91 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from "react";
-import { env } from "../config/env";
-import { Github, Database, Search, ArrowRight, Loader2, Plus, Server, Activity } from "lucide-react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { env } from "../config/env";
+import { AppShell } from "./components/AppShell";
+
+type Repository = { id: string; name: string; owner: string; status: string; default_branch: string };
 
 export default function DashboardPage() {
-  const [repos, setRepos] = useState<any[]>([]);
+  const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    const fetchRepos = async () => {
-      const token = localStorage.getItem("forge_token");
-      const orgId = localStorage.getItem("forge_org_id");
-      
-      try {
-        const res = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/imported`, {
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Organization-Id": orgId || ""
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setRepos(data.repositories);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/imported`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("forge_token")}`,
+        "X-Organization-Id": localStorage.getItem("forge_org_id") || "",
+      },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        window.clearTimeout(timeoutId);
+        if (response.ok) {
+          const data = await response.json();
+          setRepos(data.repositories || []);
         }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchRepos();
+      })
+      .catch((error) => console.error("Failed to fetch repositories:", error))
+      .finally(() => setLoading(false));
+    return () => { window.clearTimeout(timeoutId); controller.abort(); };
   }, []);
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Dashboard</h1>
-          <p className="text-muted">Welcome to Forge AI. Manage your imported repositories and runs.</p>
+    <AppShell>
+      <section className="hero workspace-hero" aria-labelledby="workspace-title">
+        <div className="hero-copy">
+          <p className="eyebrow"><span aria-hidden="true" />Your engineering workspace</p>
+          <h1 id="workspace-title"><span>From intent</span><span>to verified</span><span>change.</span></h1>
+          <p className="hero-description">Import a repository, describe the change, inspect the plan, and keep execution evidence in one deliberate path.</p>
+          <div className="hero-actions">
+            <button className="button button-primary" type="button" onClick={() => router.push("/repositories")}>Import repository <span aria-hidden="true">→</span></button>
+            <Link className="button button-secondary" href="/tasks">Review runs <span aria-hidden="true">↗</span></Link>
+          </div>
         </div>
-        <button
-          onClick={() => router.push('/repositories')} 
-          className="bg-accent hover:bg-accent/90 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Import Repository
-        </button>
-      </div>
+        <div className="hero-proof" aria-label="Forge execution lifecycle">
+          {["Repository", "Context", "Plan", "Execute", "Verify"].map((stage, index) => (
+            <span key={stage}><i>{String(index + 1).padStart(2, "0")}</i>{stage}</span>
+          ))}
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
-          <div className="text-muted flex items-center gap-2 mb-2"><Database className="w-4 h-4" /> Imported Repos</div>
-          <div className="text-3xl font-bold text-white">{loading ? "-" : repos.length}</div>
+      <section className="dashboard-field" aria-labelledby="repositories-title">
+        <div className="dashboard-field-heading reveal">
+          <div className="section-label section-label-light"><span>01</span>Workspace</div>
+          <h2 id="repositories-title">Repository context,<br />ready when you are.</h2>
+          <div className="workspace-summary">
+            <span><i>Imported</i><strong>{loading ? "—" : String(repos.length).padStart(2, "0")}</strong></span>
+            <span><i>Active runs</i><strong>00</strong></span>
+          </div>
         </div>
-        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
-          <div className="text-muted flex items-center gap-2 mb-2"><Activity className="w-4 h-4" /> Active Runs</div>
-          <div className="text-3xl font-bold text-white">0</div>
-        </div>
-        <div className="bg-surface border border-border rounded-xl p-6 flex flex-col justify-between">
-          <div className="text-muted flex items-center gap-2 mb-2"><Server className="w-4 h-4" /> Execution Nodes</div>
-          <div className="text-3xl font-bold text-green-400">Online</div>
-        </div>
-      </div>
-
-      <h2 className="text-xl font-semibold tracking-tight text-white mb-4">Your Repositories</h2>
-      
-      {loading ? (
-        <div className="flex items-center justify-center py-20 text-muted gap-3">
-          <Loader2 className="w-5 h-5 animate-spin" /> Loading repositories...
-        </div>
-      ) : repos.length === 0 ? (
-        <div className="bg-surface border border-border border-dashed rounded-xl p-12 text-center">
-          <Database className="w-12 h-12 text-muted mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2">No repositories imported</h3>
-          <p className="text-muted mb-6">Import a repository from GitHub to start using Forge AI.</p>
-          <button
-            onClick={() => router.push('/repositories')} 
-            className="bg-accent hover:bg-accent/90 text-white px-6 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
-          >
-            <Github className="w-4 h-4" /> Browse GitHub
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {repos.map(repo => (
-            <Link href={`/repositories/${repo.id}`} key={repo.id} className="bg-surface border border-border rounded-xl p-5 hover:border-accent/50 transition-colors flex flex-col justify-between group">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <Github className="w-5 h-5 text-muted" />
-                  <h3 className="font-medium text-white truncate" title={repo.name}>{repo.name}</h3>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider ${repo.status === 'READY' ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'}`}>
-                    {repo.status}
-                  </span>
-                </div>
-                <p className="text-sm text-muted mb-4 h-5">{repo.owner}/{repo.name}</p>
-              </div>
-              <div className="flex items-center justify-between border-t border-border pt-4">
-                <div className="text-xs text-muted flex items-center gap-1">
-                  <Database className="w-3 h-3" /> {repo.default_branch}
-                </div>
-                <span className="text-accent group-hover:text-white text-sm font-medium flex items-center gap-1 transition-colors">
-                  View <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                </span>
-              </div>
+        <div className="repository-ledger reveal">
+          <div className="ledger-head"><span>Repository</span><span>Branch</span><span>Status</span><span>Open</span></div>
+          {loading ? (
+            <div className="ledger-state"><span className="loading-orbit" />Reading workspace</div>
+          ) : repos.length === 0 ? (
+            <div className="ledger-empty">
+              <div><span>00 / No repository context</span><h3>Start with a codebase.</h3><p>Connect a GitHub repository to let Forge map its structure before planning a change.</p></div>
+              <Link className="button button-white" href="/repositories">Browse GitHub <span>→</span></Link>
+            </div>
+          ) : repos.slice(0, 5).map((repo, index) => (
+            <Link className="ledger-row" href={`/repositories/${repo.id}`} key={repo.id}>
+              <span className="ledger-repo"><i>{String(index + 1).padStart(2, "0")}</i><strong>{repo.name}</strong><small>{repo.owner}/{repo.name}</small></span>
+              <code>{repo.default_branch || "main"}</code>
+              <span className={`status-dot status-${repo.status?.toLowerCase()}`}>{repo.status || "Pending"}</span>
+              <b>↗</b>
             </Link>
           ))}
         </div>
-      )}
-    </div>
+        <div className="dashboard-field-footer reveal">
+          <p>Forge keeps context, planning, execution, and verification inspectable—not hidden behind a chat response.</p>
+          <Link href="/repositories">All repositories <span>→</span></Link>
+        </div>
+      </section>
+    </AppShell>
   );
 }

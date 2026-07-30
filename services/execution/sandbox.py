@@ -104,7 +104,7 @@ class DockerSandbox(SandboxRuntime):
     Mounts the workspace into a container and executes commands via docker exec.
     """
 
-    def __init__(self, workspace_root: str, image: str = "ubuntu:22.04", timeout_seconds: int = 300, network_disabled: bool = True):
+    def __init__(self, workspace_root: str, image: str = "node:20", timeout_seconds: int = 300, network_disabled: bool = False):
         self.workspace_root = workspace_root
         self.image = image
         self.container_id: str | None = None
@@ -129,9 +129,11 @@ class DockerSandbox(SandboxRuntime):
             "--network",
             "none" if self.network_disabled else "bridge",
             "-v",
-            f"{self.workspace_root}:/workspace",
+            f"{os.path.abspath(self.workspace_root)}:/workspace",
             "--tmpfs",
             "/tmp",
+            "--tmpfs",
+            "/root",
             "-w",
             "/workspace",
             self.image,

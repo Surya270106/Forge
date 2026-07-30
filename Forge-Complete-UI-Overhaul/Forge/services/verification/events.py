@@ -1,0 +1,66 @@
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.database.models.outbox_event import OutboxEventModel
+from packages.shared.events import EventEnvelope, EventPublisher
+
+
+class VerificationEventPublisher(EventPublisher):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def publish(self, event: EventEnvelope) -> None:
+        outbox_event = OutboxEventModel(
+            id=event.event_id,
+            event_type=event.event_type,
+            organization_id=event.organization_id,
+            aggregate_type=event.aggregate_type,
+            aggregate_id=event.aggregate_id,
+            aggregate_version=event.aggregate_version,
+            correlation_id=event.correlation_id,
+            causation_id=event.causation_id,
+            schema_version=event.schema_version,
+            payload=event.payload,
+            occurred_at=event.occurred_at,
+        )
+        self.session.add(outbox_event)
+        await self.session.flush()
+
+
+def create_verification_started_event(org_id: UUID, repo_id: UUID, job_id: UUID, exec_id: UUID) -> EventEnvelope:
+    return EventEnvelope(
+        event_type="verification.started",
+        aggregate_type="verification",
+        aggregate_id=str(job_id),
+        organization_id=str(org_id),
+        payload={
+            "organization_id": str(org_id),
+            "repository_id": str(repo_id),
+            "execution_job_id": str(exec_id),
+        },
+    )
+
+
+def create_verification_completed_event(org_id: UUID, repo_id: UUID, job_id: UUID, passed: bool) -> EventEnvelope:
+    return EventEnvelope(
+        event_type="verification.completed",
+        aggregate_type="verification",
+        aggregate_id=str(job_id),
+        organization_id=str(org_id),
+        payload={"organization_id": str(org_id), "repository_id": str(repo_id), "passed": passed},
+    )
+
+
+def create_repair_attempted_event(org_id: UUID, repo_id: UUID, repair_id: UUID, verif_job_id: UUID) -> EventEnvelope:
+    return EventEnvelope(
+        event_type="repair.attempted",
+        aggregate_type="repair",
+        aggregate_id=str(repair_id),
+        organization_id=str(org_id),
+        payload={
+            "organization_id": str(org_id),
+            "repository_id": str(repo_id),
+            "verification_job_id": str(verif_job_id),
+        },
+    )

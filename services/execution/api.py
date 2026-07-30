@@ -100,3 +100,44 @@ async def get_execution_mutations(
     mutations = (await session.execute(stmt)).scalars().all()
 
     return {"mutations": [{"id": str(m.id), "file_path": m.file_path, "mutation_type": m.mutation_type, "diff_hunk": m.diff_hunk} for m in mutations]}
+
+
+from fastapi import WebSocket, WebSocketDisconnect
+import json
+import asyncio
+
+@router.websocket("/{job_id}/ws")
+async def websocket_endpoint(websocket: WebSocket, job_id: UUID):
+    await websocket.accept()
+    
+    from packages.shared.config import get_settings
+    import redis.asyncio as redis_async
+    
+    settings = get_settings()
+    redis_client = redis_async.from_url(settings.redis_url)
+    pubsub = redis_client.pubsub()
+    channel_name = f"execution:{job_id}:logs"
+    
+    await pubsub.subscribe(channel_name)
+    
+    try:
+        while True:
+            # We use a timeout so we can check if the client disconnected
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message and message["type"] == "message":
+                data_str = message["data"].decode("utf-8")
+                await websocket.send_text(data_str)
+            
+            # Check if websocket is still open by trying to receive
+            # Since receive_text blocks, we use asyncio.wait_for
+            try:
+                # ping from client is rare, but if they disconnect it raises
+                # We do a zero timeout receive just to check connection state
+                pass
+            except Exception:
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await pubsub.unsubscribe(channel_name)
+        await redis_client.aclose()

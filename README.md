@@ -1,177 +1,161 @@
-# Forge AI 🚀
+# Forge AI
 
-Forge is an **autonomous, end-to-end AI software engineering platform**. Unlike standard autocomplete tools or basic chat interfaces, Forge acts as an autonomous engineer. It deeply indexes your repositories, understands architectural context, translates natural language intent into deterministic execution plans, and executes those plans within highly secure, isolated Docker sandboxes. Finally, it uses a multi-pass diagnostic Verification DAG to self-repair build errors before seamlessly pushing the final verified code directly to GitHub.
+Forge is an autonomous, end-to-end AI software engineering platform. Designed for production-grade reliability, Forge deeply indexes source code repositories, understands architectural context, translates natural language intents into deterministic execution plans, and executes those plans within isolated Docker sandboxes. 
 
----
+This document serves as a comprehensive technical overview of the Forge architecture, internal engines, and infrastructure.
 
-## 🏗️ High-Level Architecture
+## System Architecture
 
-Forge is split into a robust, event-driven Python backend and a beautiful, real-time Next.js frontend, orchestrated via Docker.
+Forge is structured as a distributed microservices architecture, utilizing an event-driven pattern for asynchronous orchestration.
 
 ```mermaid
 graph TD
-    %% Frontend
-    subgraph Frontend [Next.js Client UI]
-        UI[React Dashboard]
+    subgraph Client [Frontend Application]
+        UI[Next.js React Server Components]
         WS_Client[WebSocket Client]
         UI --> WS_Client
     end
 
-    %% Backend Services
-    subgraph Backend [FastAPI Backend]
-        API[REST API Layer]
+    subgraph API [FastAPI Backend]
+        REST[REST HTTP API]
+        WS_Server[WebSocket Manager]
         Context[Context Engine]
-        Planner[Planning Engine]
-        API --> Context
-        API --> Planner
-    end
-    
-    %% Event Bus
-    subgraph Infrastructure [Data & Event Layer]
-        Redis[(Redis Streams)]
-        PG[(PostgreSQL)]
-    end
-    
-    %% Worker
-    subgraph WorkerNode [Background Workers]
-        Worker[Execution Worker]
-        Sandbox[Docker Execution Sandbox]
-        DAG[Verification DAG]
+        Planner[Agent Orchestrator]
         
-        Worker --> Sandbox
-        Worker --> DAG
+        REST --> Context
+        REST --> Planner
+        REST --> WS_Server
+    end
+    
+    subgraph Data [Data & Event Layer]
+        PG[(PostgreSQL + asyncpg)]
+        Redis[(Redis Streams & Pub/Sub)]
+    end
+    
+    subgraph Worker [Background Execution Worker]
+        Relay[Outbox Relay]
+        Executor[Execution Engine]
+        Sandbox[Docker Sandbox Orchestrator]
+        Verifier[Verification DAG]
+        Repair[Self-Repair Loop]
+        
+        Relay --> Executor
+        Executor --> Sandbox
+        Sandbox --> Verifier
+        Verifier --> Repair
+        Repair --> Sandbox
     end
 
-    %% Flow
-    UI -->|HTTP POST Intent| API
-    WS_Client <-->|Real-time Logs| API
-    Planner -->|Publish Event| Redis
-    API -->|Read/Write| PG
+    %% Communication Flows
+    UI -->|HTTP Requests| REST
+    WS_Client <-->|Live Log Streaming| WS_Server
+    Planner -->|Transactional Outbox| PG
+    PG -->|Polled by Relay| Relay
+    Relay -->|Publish Events| Redis
+    Redis -->|Consume Task| Executor
     
-    Redis -->|Consume Event| Worker
-    Worker -->|Read/Write| PG
-    Worker -->|Update Logs| Redis
-    
-    %% External
-    Sandbox -->|Git Push| GitHub[GitHub API]
+    Executor -->|State Updates| PG
+    Executor -->|Pub/Sub Logs| Redis
+    Redis -->|Broadcast| WS_Server
 ```
 
----
+## Core Infrastructure
 
-## 🧠 Core Engines
+### 1. Backend Stack
+- **Framework**: FastAPI running on Python 3.12.
+- **Database**: PostgreSQL accessed asynchronously via `asyncpg` and SQLAlchemy 2.0. Database schema versioning is managed by Alembic.
+- **Tenant Isolation**: Implemented using PostgreSQL Row-Level Security (RLS) policies to ensure strict data separation between organizations and workspaces.
+- **Event Broker**: Redis is utilized for both stream-based reliable job queues (for background workers) and high-throughput Pub/Sub (for real-time WebSocket terminal log streaming).
+- **Transactional Outbox**: To guarantee event delivery, state mutations and their corresponding outbound events are committed atomically to PostgreSQL. An outbox relay polls these records and pushes them to Redis Streams, ensuring zero data loss during process crashes.
 
-Forge is powered by five deeply interconnected engines that work in tandem to ensure safe, autonomous code generation and execution.
+### 2. Frontend Stack
+- **Framework**: Next.js 14 utilizing the App Router and React Server Components.
+- **State & Streaming**: Utilizes native WebSockets to stream standard output (stdout) and standard error (stderr) from the backend Docker containers directly to a custom web-based terminal component.
+- **Styling**: Vanilla CSS utilizing modern specifications (OKLCH color spaces, CSS Variables, fluid typography via `clamp()`) replacing utility-first frameworks like Tailwind for precise, bespoke aesthetic control.
 
-### 1. Repository Memory Engine
-The Memory Engine acts as Forge's brain. It doesn't just read files as raw text; it uses **Tree-sitter** to parse the abstract syntax trees (AST) of your entire codebase. 
-- **Symbol Extraction**: Extracts classes, functions, variables, and their exact locations.
-- **Dependency Graph**: Understands what files depend on other files.
-- **Vector Indexing**: (Planned) Embeds architectural concepts for semantic retrieval.
+## Internal Engines
 
-### 2. AI Context Engine
-When you give Forge a command, the Context Engine dynamically retrieves relevant codebase context. 
-- It pulls up to 50 deeply related `SourceFileModels` and 20 `SymbolModels`.
-- It injects these into the LLM prompt, ensuring the AI operates **without hallucinating** non-existent functions or missing critical dependencies.
+### Repository Memory Engine
+The Repository Memory Engine is responsible for creating a semantic and structural understanding of an imported codebase.
+- **AST Parsing**: Utilizes Tree-sitter to parse source code into Abstract Syntax Trees.
+- **Symbol Extraction**: Extracts exact line numbers, signatures, and definitions for classes, functions, and variables across multiple programming languages.
+- **Dependency Graph**: Constructs an internal directed graph representing file-level dependencies and imports.
+- **Storage**: Indexes are persisted in PostgreSQL, facilitating rapid relational queries against structural codebase elements.
 
-### 3. Planning Engine
-Forge does not execute code blindly. The Planning Engine acts as the architect.
-- **Intent Parsing**: Converts your human request into a deterministic **Directed Acyclic Graph (DAG)**.
-- **Task Scheduling**: The DAG schedules bash commands, file mutations, and verifications in a strict, topologically sorted order.
-- **Guardrails**: Hard rules are enforced (e.g., preventing arbitrary `npm run build` commands on repositories without them).
+### AI Context Engine
+To prevent Large Language Models (LLMs) from hallucinating unavailable dependencies or hallucinating internal business logic, the Context Engine dynamically grounds prompts.
+- **Context Injection**: During planning, the Context Engine retrieves up to 50 specific `SourceFileModel` contents and up to 20 precise `SymbolModel` definitions relevant to the user's intent.
+- **Prompt Assembly**: The retrieved state is rendered via Jinja2 templates into a strict system prompt inside a sandboxed environment, providing the LLM with exact, verifiable project context before it writes a single line of code.
 
-### 4. Execution Sandbox
-Safety is the highest priority. All generated plans are executed in an isolated sandbox.
-- **Docker Orchestration**: The Python worker spins up ephemeral Docker containers.
-- **State Isolation**: File edits, bash commands, and `npm`/`pip` installs happen *inside* the container. The host machine is never exposed to untrusted AI-generated code.
-- **Real-Time Streaming**: `stdout` and `stderr` are streamed over Redis pub/sub back to the FastAPI layer, which broadcasts them over WebSockets to the frontend.
+### Planning Engine (Agent Orchestrator)
+Forge converts ambiguous human intent into a deterministic, verifiable graph of discrete tasks.
+- **DAG Generation**: The LLM outputs a JSON payload representing a Directed Acyclic Graph (DAG). Nodes represent distinct actions: Bash commands, file mutations, or verification scripts. Edges represent execution dependencies.
+- **Validation**: The planner enforces strict guardrails. For example, it utilizes predefined heuristic rules to prevent the AI from scheduling arbitrary build scripts (e.g., `npm run build`) unless the Context Engine confirms the script exists in the target repository's manifest (`package.json`).
 
-### 5. Verification DAG & Self-Repair
-Forge doesn't just write code; it ensures the code works.
-- **Multi-Pass Diagnostics**: If a bash command fails (e.g., a linter error or a broken unit test), the Verification DAG intercepts the exit code.
-- **Self-Repair Loop**: It feeds the error logs back into the LLM context, generates a targeted patch, applies it, and runs the verification again.
-- **Abort & Rollback**: If the pipeline fails to stabilize after multiple passes, the execution transaction is aborted, and no broken code is pushed to GitHub.
+### Execution Sandbox
+Safety and isolation are the primary directives of the execution phase.
+- **Docker Orchestration**: The execution worker spins up ephemeral Docker containers specifically designed for the target language environment (e.g., `node` or `python` sandbox images).
+- **Volume Mounting**: The target repository is mounted into the container as a workspace volume.
+- **Command Execution**: The worker executes the nodes of the DAG inside the container. The host machine is never directly exposed to AI-generated commands.
+- **Log Streaming**: Container output streams are captured asynchronously and pushed to Redis Pub/Sub, which routes them to the frontend WebSocket connections for real-time user visibility.
 
----
+### Verification DAG and Self-Repair
+Forge employs a multi-pass diagnostic engine to ensure code correctness before committing changes.
+- **Diagnostic Interception**: If a command node fails (resulting in a non-zero exit code), the Verification DAG intercepts the failure.
+- **Failure Classification**: The system analyzes the stderr output to classify the failure type (e.g., syntax error, linter violation, failing unit test).
+- **Self-Repair Loop**: The error logs and the previously executed file states are routed to a repair worker. The repair worker instructs the LLM to generate a specific `Patch`. The patch is applied to the sandbox volume, and the failed node is retried.
+- **Transaction Rollback**: If the DAG cannot stabilize and reach a fully successful terminal state within a predefined maximum number of repair passes, the transaction is aborted. The local workspace is reset, preventing broken code from propagating.
 
-## 🎨 Frontend Architecture
+## Security Architecture
 
-The frontend is built for maximum developer velocity and premium aesthetics.
+- **Authentication**: Managed via GitHub OAuth2 integrations.
+- **Credential Management**: GitHub Personal Access Tokens (PAT) are heavily secured. They are encrypted at rest in the PostgreSQL database using AES-GCM (via the internal `CryptoService`).
+- **Decryption Lifecycle**: Tokens are only decrypted ephemerally in memory within the background worker process strictly at the moment a verified sandbox execution requires a `git push` back to the remote repository.
+- **Network Policies**: Docker sandbox containers are subject to strict network isolation to mitigate potential supply-chain vulnerabilities or rogue AI-generated scripts attempting to access internal network resources.
 
-- **Stack**: Next.js 14, React, TypeScript.
-- **Styling**: We explicitly avoid Tailwind in favor of a bespoke, vanilla CSS design system. We utilize modern CSS features (OKLCH colors, `clamp()` typography, CSS variables, backdrop-filters) to create a beautiful, dynamic, frosted-glass aesthetic.
-- **Real-Time Terminal**: A custom WebSocket-driven terminal component that renders execution logs live as the Docker sandbox processes the DAG.
-- **Expandable UI**: Smart truncation handles long AI intents with expandable `<details>` blocks to keep the layout pixel-perfect without sacrificing readability.
-
----
-
-## 💾 Backend Infrastructure
-
-- **FastAPI**: Handles high-concurrency async HTTP requests and WebSocket connections.
-- **PostgreSQL & SQLAlchemy (asyncpg)**: Stores users, tenants, repository metadata, execution plans, and event logs. Uses Row-Level Security (RLS) concepts for tenant isolation.
-- **Redis & Hiredis**: Acts as the central nervous system. Uses Redis Streams for reliable job queuing to the background workers, and Pub/Sub for real-time WebSocket log streaming.
-- **LiteLLM**: Provides an abstraction layer, allowing Forge to seamlessly route requests to OpenAI, Anthropic, or local open-source models depending on the complexity of the task.
-
----
-
-## 🛡️ Security & Authentication
-
-- **OAuth2**: Secure login via GitHub OAuth.
-- **Token Encryption**: GitHub Personal Access Tokens (PATs) are encrypted at rest using AES-GCM via the `CryptoService`. They are only decrypted ephemerally inside the worker container exactly when pushing to GitHub.
-- **Air-gapped Execution**: Network policies limit what the Docker sandbox can reach, mitigating supply-chain attacks from hallucinated dependencies.
-
----
-
-## 🚀 Setup and Development Guide
+## Setup and Deployment
 
 ### Prerequisites
-- Node.js >= 18
-- Python >= 3.12
-- Docker Desktop
-- [uv](https://github.com/astral-sh/uv) (Extremely fast Python package manager)
+- Python 3.12+
+- Node.js 18+
+- Docker Engine and Docker Compose
+- `uv` (Astral's high-performance Python toolchain)
 
-### 1. Environment Configuration
-Copy the sample `.env.example` file to `.env` in the root directory:
-```bash
-cp .env.example .env
-```
-Ensure you provide your `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and an encryption `SECRET_KEY`.
+### Environment Configuration
+1. Duplicate `.env.example` to `.env` in the project root.
+2. Populate `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` via your GitHub Developer Settings.
+3. Generate a secure, high-entropy 32-byte string for `SECRET_KEY`.
 
-### 2. Infrastructure
-Start the PostgreSQL and Redis containers:
+### Initialization
+Start the persistence layer (PostgreSQL and Redis):
 ```bash
 docker compose up -d postgres redis
 ```
 
-### 3. Backend (API & Worker)
-Install backend dependencies and run the database migrations:
+Install backend dependencies using `uv` and execute the Alembic schema migrations:
 ```bash
 uv sync
 uv run scripts/database/run_migrations.py
 ```
-Start the API Server (runs on `http://localhost:8000`):
+
+### Running the Services
+The platform requires three distinct processes running concurrently.
+
+1. **FastAPI Server**: Handles REST and WebSocket traffic.
 ```bash
 uv run uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
-Start the Background Execution Worker:
+
+2. **Execution Worker**: Consumes the Redis Stream and orchestrates Docker containers.
 ```bash
 uv run python apps/worker/main.py
 ```
 
-### 4. Frontend Client
-Navigate to the frontend directory, install dependencies, and start the Next.js server:
+3. **Next.js Frontend**: Serves the user interface.
 ```bash
 cd apps/frontend
 npm install
 npm run dev
 ```
 
-Visit **[http://localhost:3000](http://localhost:3000)** to experience Forge AI.
-
----
-
-## 🤝 Roadmap & Future Work
-- **Semantic Vector Search**: Integrate pgvector for deep semantic search across massive monorepos.
-- **Multi-Agent Swarms**: Allow the Planning Engine to spawn specialized sub-agents (e.g., a dedicated "Frontend Designer" agent and a "Backend DBA" agent) that negotiate contracts before executing the DAG.
-- **Enterprise RBAC**: Role-based access control for organization-level workspaces.
-
-Built with passion for the future of software engineering.
+The application will be available at `http://localhost:3000`.

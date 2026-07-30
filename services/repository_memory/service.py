@@ -145,39 +145,92 @@ class IndexingCoordinator:
                 # Dry-run fixture file if workspace doesn't exist (since we can't run git clone locally)
                 files_to_parse = ["test.py"]
 
-            for file_path in files_to_parse:
+            job.total_files = len(files_to_parse)
+            job.files_processed = 0
+            await self.session.commit()
+            
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            
+            def parse_file(file_path):
                 rel_path = os.path.relpath(file_path, workspace_dir) if os.path.exists(workspace_dir) else file_path
                 adapter = self.registry.get_adapter(rel_path)
                 if not adapter:
-                    continue
-
+                    return None
+                    
                 content = b"class MockClass:\n    pass\n"  # Mock content for local dev missing real workspace
                 if os.path.exists(file_path):
                     with open(file_path, "rb") as f:
                         content = f.read()
 
                 checksum = hashlib.sha256(content).hexdigest()
-
-                source_file = SourceFileModel(
-                    id=generate_id(),
-                    organization_id=job.organization_id,
-                    repository_id=job.repository_id,
-                    memory_version_id=new_version.id,
-                    file_path=rel_path,
-                    checksum=checksum,
-                    language=adapter.get_language_name(),
-                    size_bytes=len(content),
-                    lines=content.count(b"\n") + 1,
-                )
-                self.session.add(source_file)
-                await self.session.flush()
-
+                
                 try:
                     tree = adapter.parse(content)
                     symbols = adapter.extract_symbols(tree, content)
                     adapter.extract_dependencies(tree, content)
                     adapter.extract_calls(tree, content)
+                    return {
+                        "rel_path": rel_path,
+                        "adapter": adapter,
+                        "content": content,
+                        "checksum": checksum,
+                        "symbols": symbols,
+                        "error": None
+                    }
+                except Exception as parse_err:
+                    return {
+                        "rel_path": rel_path,
+                        "error": str(parse_err)
+                    }
 
+            chunk_size = 10
+            for i in range(0, len(files_to_parse), chunk_size):
+                chunk = files_to_parse[i:i+chunk_size]
+                
+                with ThreadPoolExecutor() as pool:
+                    loop = asyncio.get_running_loop()
+                    tasks = [loop.run_in_executor(pool, parse_file, fp) for fp in chunk]
+                    results = await asyncio.gather(*tasks)
+                    
+                for result in results:
+                    job.files_processed += 1
+                    if not result:
+                        continue
+                        
+                    rel_path = result["rel_path"]
+                    
+                    if result["error"]:
+                        self.session.add(
+                            IndexingFailureModel(
+                                id=generate_id(),
+                                organization_id=job.organization_id,
+                                repository_id=job.repository_id,
+                                indexing_job_id=job.id,
+                                file_path=rel_path,
+                                error_message=result["error"],
+                            )
+                        )
+                        continue
+                        
+                    content = result["content"]
+                    adapter = result["adapter"]
+                    symbols = result["symbols"]
+                    
+                    source_file = SourceFileModel(
+                        id=generate_id(),
+                        organization_id=job.organization_id,
+                        repository_id=job.repository_id,
+                        memory_version_id=new_version.id,
+                        file_path=rel_path,
+                        checksum=result["checksum"],
+                        language=adapter.get_language_name(),
+                        size_bytes=len(content),
+                        lines=content.count(b"\n") + 1,
+                    )
+                    self.session.add(source_file)
+                    await self.session.flush()
+                    
                     for sym in symbols:
                         self.session.add(
                             SymbolModel(
@@ -194,22 +247,11 @@ class IndexingCoordinator:
                                 snippet=sym.snippet,
                             )
                         )
-
-                    # Omitted edge creation for brevity, but same pattern follows.
-
+                    
                     await publisher.publish(create_file_parsed_event(job.organization_id, job.repository_id, rel_path, len(symbols)))
-
-                except Exception as parse_err:
-                    self.session.add(
-                        IndexingFailureModel(
-                            id=generate_id(),
-                            organization_id=job.organization_id,
-                            repository_id=job.repository_id,
-                            indexing_job_id=job.id,
-                            file_path=rel_path,
-                            error_message=str(parse_err),
-                        )
-                    )
+                    
+                # Commit progress every chunk
+                await self.session.commit()
 
             job.status = IndexingStatus.COMPLETED
             job.finished_at = datetime.now(UTC)

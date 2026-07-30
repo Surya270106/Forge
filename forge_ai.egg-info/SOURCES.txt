@@ -63,6 +63,9 @@ services/execution/patch_engine.py
 services/execution/sandbox.py
 services/execution/schemas.py
 services/execution/worker.py
+services/github/__init__.py
+services/github/webhooks.py
+services/organizations/api.py
 services/patch/__init__.py
 services/patch/api.py
 services/patch/github_client.py

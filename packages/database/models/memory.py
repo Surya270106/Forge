@@ -168,6 +168,8 @@ class IndexingJobModel(IdMixin, TimestampMixin, Base):
     branch: Mapped[str] = mapped_column(String(255), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    files_processed: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    total_files: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class IndexingFailureModel(IdMixin, TimestampMixin, Base):

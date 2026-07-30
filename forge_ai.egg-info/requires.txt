@@ -13,6 +13,7 @@ pytokens>=0.4.1
 PyJWT>=2.8.0
 pyyaml>=6.0.3
 orjson
+litellm>=1.0.0
 tenacity
 uuid7
 jinja2>=3.1.6

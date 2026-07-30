@@ -339,6 +339,14 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
                 )
                 if resp.status_code != 200:
                     raise HTTPException(status_code=400, detail=f"Anthropic error: {resp.text}")
+            elif provider.lower() == "groq":
+                resp = await client.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=10.0,
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Groq error: {resp.text}")
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
     except Exception as e:

@@ -28,6 +28,20 @@ class VerificationEventPublisher(EventPublisher):
         await self.session.flush()
 
 
+def create_verification_requested_event(org_id: UUID, repo_id: UUID, job_id: UUID, exec_id: UUID) -> EventEnvelope:
+    return EventEnvelope(
+        event_type="verification.requested",
+        aggregate_type="verification",
+        aggregate_id=str(job_id),
+        organization_id=str(org_id),
+        payload={
+            "organization_id": str(org_id),
+            "repository_id": str(repo_id),
+            "verification_job_id": str(job_id),
+            "execution_job_id": str(exec_id),
+        },
+    )
+
 def create_verification_started_event(org_id: UUID, repo_id: UUID, job_id: UUID, exec_id: UUID) -> EventEnvelope:
     return EventEnvelope(
         event_type="verification.started",

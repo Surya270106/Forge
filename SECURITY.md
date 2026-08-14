@@ -4,6 +4,40 @@
 
 Forge is currently an alpha project. Security fixes are applied to the latest commit on the default branch; older commits and alpha snapshots are not separately supported.
 
+## Security boundaries
+
+Forge imports repositories, stores credentials, and executes repository commands. Its
+primary boundaries are:
+
+- API authentication, role-based permissions, and organization-scoped database access;
+- PostgreSQL row-level security for tenant-owned records;
+- encryption for stored provider credentials;
+- per-job workspaces and allowlisted Docker images for execution;
+- network-disabled containers for verification workloads that do not require egress;
+- audit records for sensitive workflow changes.
+
+These controls reduce risk but do not make the internal alpha a hardened multi-tenant
+service. Authorization must be enforced for background jobs as well as HTTP requests,
+and RLS must remain enabled and tested on the deployed PostgreSQL instance.
+
+## Execution and deployment expectations
+
+The Compose worker mounts the Docker daemon socket. Possession of that socket is
+effectively host-level privilege: a compromised worker or sandbox-management path may be
+able to control the Docker host. Use a dedicated host, restrict access to the worker, keep
+the sandbox image allowlist narrow, and review resource and network policy before running
+repository code.
+
+`LocalProcessSandbox` executes directly on the host and is intended only for trusted
+development fixtures. It is not an isolation boundary and must never run arbitrary or
+untrusted repositories.
+
+Development defaults in `.env.example` and `docker-compose.yml` are not deployment
+secrets. A shared environment requires unique signing and encryption keys, protected
+GitHub credentials, restricted database and Redis exposure, TLS at the ingress, and
+production configuration validation. Do not expose the API, worker, data services, or
+Docker socket directly to the public internet.
+
 ## Reporting a vulnerability
 
 Forge executes repository code, controls Docker workloads, and stores GitHub and provider credentials. Please do not publicly disclose or exploit a suspected vulnerability before the maintainer has had a reasonable opportunity to investigate it.

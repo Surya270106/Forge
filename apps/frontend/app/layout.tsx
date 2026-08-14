@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
-import "../../../forge-antigravity-ui-overhaul-v2/reference-ui/app/globals.css";
 import "./workspace.css";
 import BlobScene from "./components/blob-scene";
 

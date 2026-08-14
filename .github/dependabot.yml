@@ -1,5 +1,7 @@
 version: 2
 
+# Version-update pull requests are intentionally paused during the internal alpha.
+# Dependabot security updates are managed separately in the repository settings.
 updates:
   - package-ecosystem: pip
     directory: /

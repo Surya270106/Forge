@@ -6,6 +6,14 @@ All notable changes to Forge AI will be documented in this file.
 
 ### Changed
 
+- Documented application, service, package, container, script, and test ownership at the
+  directories where contributors encounter those components.
+- Clarified that automated version-update pull requests are paused during the internal
+  alpha and that security updates are controlled independently in repository settings.
+- Added Python package links to the repository, issue tracker, and changelog.
+- Replaced conventional-prefix commit guidance with scoped, human-readable subjects.
+- Documented currently skipped workflow coverage so skips are reported separately from
+  passing validation.
 - Consolidated API and worker container definitions under `docker/` and aligned Compose with the canonical paths.
 - Organized active UI references separately from archived UI-overhaul reports.
 - Categorized operational and diagnostic scripts and removed obsolete one-off maintenance helpers.
@@ -15,6 +23,10 @@ All notable changes to Forge AI will be documented in this file.
 
 ### Security
 
+- Documented the Docker socket, local-process execution, tenant isolation, credential,
+  and production deployment trust boundaries.
+- Expanded ignore rules for local environment managers, private keys, and certificates.
+- Annotated the example environment with development-only secret and sandbox guidance.
 - Excluded local environment files and Forge runtime data from Git and Docker build contexts.
 - Removed the insecure production-secret fallback from the production configuration path; Compose defaults remain development-only and production validation rejects them.
 

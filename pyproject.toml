@@ -2,6 +2,7 @@
 name = "forge-ai"
 version = "0.1.0-alpha.1"
 description = "Forge AI backend"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -31,6 +32,11 @@ dependencies = [
     "cryptography>=49.0.0",
     "psutil",
 ]
+
+[project.urls]
+Repository = "https://github.com/Surya270106/Forge"
+Issues = "https://github.com/Surya270106/Forge/issues"
+Changelog = "https://github.com/Surya270106/Forge/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

@@ -1,8 +1,5 @@
 # Forge
 
-[![CI](https://github.com/Surya270106/Forge/actions/workflows/ci.yml/badge.svg)](https://github.com/Surya270106/Forge/actions/workflows/ci.yml)
-[![Docker verification](https://github.com/Surya270106/Forge/actions/workflows/docker-verification.yml/badge.svg)](https://github.com/Surya270106/Forge/actions/workflows/docker-verification.yml)
-
 Forge is a repository-aware software engineering system that imports and indexes source repositories, builds structural code memory, turns an approved intent into an execution plan, runs that plan in a Docker sandbox, records mutations and logs, and verifies the result with a bounded repair path.
 
 The project is an internal alpha. Its architecture and security controls are implemented and tested, but Forge should not be treated as a hosted production service or used to execute untrusted repositories without reviewing the deployment, Docker daemon exposure, credentials, and network policy.
@@ -62,7 +59,7 @@ The repository keeps deployable applications in `apps/`, reusable infrastructure
 ### Backend
 
 - Python package requirement: Python 3.12 or newer. The codebase uses Python 3.12 type-parameter syntax.
-- Container and CI runtime: Python 3.12.
+- Container runtime: Python 3.12.
 - FastAPI, Pydantic 2, SQLAlchemy 2, asyncpg, Alembic, Redis, LiteLLM, NetworkX, and Tree-sitter.
 - PostgreSQL is the system of record. Redis provides streams for worker delivery and Pub/Sub for live logs.
 
@@ -83,9 +80,6 @@ The worker mounts the host Docker socket in the Compose development stack. Acces
 ```text
 Forge/
 ├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml
-│   │   └── docker-verification.yml
 │   ├── dependabot.yml
 │   └── pull_request_template.md
 ├── apps/
@@ -129,7 +123,7 @@ See the [documentation index](docs/README.md) for current UI references and arch
 
 ## Prerequisites
 
-- Python 3.12, matching CI and the container images.
+- Python 3.12, matching the container images.
 - [`uv`](https://docs.astral.sh/uv/) for the locked Python environment.
 - Node.js 20+ and npm for local frontend development. The frontend image uses Node 24.
 - Docker Engine with the Compose plugin.
@@ -235,7 +229,7 @@ docker build -f docker/Dockerfile.sandbox-python -t forge-sandbox-python:local .
 docker build -f docker/Dockerfile.sandbox-node -t forge-sandbox-node:local .
 ```
 
-Both sandbox definitions set a non-root runtime user. The Docker verification workflow builds all five definitions and checks the sandbox user identity.
+Both sandbox definitions set a non-root runtime user. Build both images and verify that `id -u` is not `0` before deploying sandbox changes.
 
 ## API surface
 

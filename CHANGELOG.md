@@ -10,7 +10,7 @@ All notable changes to Forge AI will be documented in this file.
 - Organized active UI references separately from archived UI-overhaul reports.
 - Categorized operational and diagnostic scripts and removed obsolete one-off maintenance helpers.
 - Replaced repository ignore rules with coverage for Python, Next.js, Playwright, local runtime data, caches, and secrets.
-- Added contributor, security, pull request, dependency automation, and CI maintenance configuration.
+- Added contributor, security, pull request, and dependency automation configuration.
 - Fact-checked the root README against current versions, routes, environment variables, and validation commands.
 
 ### Security

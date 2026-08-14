@@ -1,4 +1,4 @@
-# Forge AI — UI Design System
+# Forge UI Design System
 
 ## Overview
 This document defines the design system implemented during the Forge AI Complete UI Overhaul (V2). It replaces the previous dark-themed admin layout with a bright, spacious, "Living Core" design.

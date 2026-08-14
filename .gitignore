@@ -1,30 +1,56 @@
-node_modules/
-.next/
-dist/
-build/
-coverage/
-playwright-report/
-test-results/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
 .pytest_cache/
 .mypy_cache/
 .pyright/
 .ruff_cache/
-__pycache__/
-*.pyc
-*.log
-.env
-.env.local
-.env.*.local
-!.env.example
 .venv/
-.venv_official/
+.venv*/
 venv/
 env/
-temporary_logs/
-tmp/
-*.sqlite3
-postgres-data/
-redis-data/
+dist/
+build/
+
+# Node.js / Next.js
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Browser tests
+playwright-report/
+test-results/
+
+# Environment and local credentials
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Forge runtime data
 repositories/
 workspaces/
+temporary_logs/
 generated_reports/
+postgres-data/
+redis-data/
+*.sqlite3
+*.log
+tmp/
+.tmp/
+.tmp*/
+
+# Local tooling, OS, and editors
+.test-cache/
+.uv-cache/
+.DS_Store
+Thumbs.db
+.idea/

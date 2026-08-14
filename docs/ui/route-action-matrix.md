@@ -1,4 +1,4 @@
-# Forge AI — Route & Action Matrix
+# Forge UI Route and Action Matrix
 
 | Route | Screen | Control | User action | API/service | Loading | Success | Error | Permission |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

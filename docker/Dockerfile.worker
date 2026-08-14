@@ -1,18 +1,24 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
-RUN useradd -m -u 1000 forge
+RUN groupadd --gid 1000 forge \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin forge \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl docker.io libpq-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
 
 WORKDIR /app
 
-# Install uv
-RUN pip install uv
+ENV PATH="/app/.venv/bin:$PATH" \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY . .
+COPY --chown=forge:forge . .
 RUN uv sync --frozen --no-dev
 
 USER forge
 
-CMD ["uv", "run", "python", "-m", "apps.worker.main"]
+CMD ["python", "-m", "apps.worker.main"]

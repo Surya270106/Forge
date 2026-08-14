@@ -1,161 +1,308 @@
-# Forge AI
+# Forge
 
-Forge is an autonomous, end-to-end AI software engineering platform. Designed for production-grade reliability, Forge deeply indexes source code repositories, understands architectural context, translates natural language intents into deterministic execution plans, and executes those plans within isolated Docker sandboxes. 
+Forge is a repository-aware software engineering system that imports and indexes source repositories, builds structural code memory, turns an approved intent into an execution plan, runs that plan in a Docker sandbox, records mutations and logs, and verifies the result with a bounded repair path.
 
-This document serves as a comprehensive technical overview of the Forge architecture, internal engines, and infrastructure.
+The project is an internal alpha. Its architecture and security controls are implemented and tested, but Forge should not be treated as a hosted production service or used to execute untrusted repositories without reviewing the deployment, Docker daemon exposure, credentials, and network policy.
 
-## System Architecture
+## What Forge contains
 
-Forge is structured as a distributed microservices architecture, utilizing an event-driven pattern for asynchronous orchestration.
+- A FastAPI API for authentication, repositories, indexing, planning, execution, verification, patches, audit data, and workspace administration.
+- A Next.js App Router frontend for the repository-to-execution workflow and live execution output.
+- An asynchronous worker backed by a PostgreSQL transactional outbox and Redis Streams.
+- Repository scanning, language/framework detection, Tree-sitter parsing, symbol storage, and graph-oriented memory construction.
+- Plan approval and execution state machines with persisted logs and mutations.
+- Docker-backed command execution and verification, including network-disabled verification sandboxes.
+- GitHub OAuth, webhook handling, encrypted provider credentials, role-based permissions, and PostgreSQL row-level security migrations.
+
+## Lifecycle
 
 ```mermaid
-graph TD
-    subgraph Client [Frontend Application]
-        UI[Next.js React Server Components]
-        WS_Client[WebSocket Client]
-        UI --> WS_Client
-    end
-
-    subgraph API [FastAPI Backend]
-        REST[REST HTTP API]
-        WS_Server[WebSocket Manager]
-        Context[Context Engine]
-        Planner[Agent Orchestrator]
-        
-        REST --> Context
-        REST --> Planner
-        REST --> WS_Server
-    end
-    
-    subgraph Data [Data & Event Layer]
-        PG[(PostgreSQL + asyncpg)]
-        Redis[(Redis Streams & Pub/Sub)]
-    end
-    
-    subgraph Worker [Background Execution Worker]
-        Relay[Outbox Relay]
-        Executor[Execution Engine]
-        Sandbox[Docker Sandbox Orchestrator]
-        Verifier[Verification DAG]
-        Repair[Self-Repair Loop]
-        
-        Relay --> Executor
-        Executor --> Sandbox
-        Sandbox --> Verifier
-        Verifier --> Repair
-        Repair --> Sandbox
-    end
-
-    %% Communication Flows
-    UI -->|HTTP Requests| REST
-    WS_Client <-->|Live Log Streaming| WS_Server
-    Planner -->|Transactional Outbox| PG
-    PG -->|Polled by Relay| Relay
-    Relay -->|Publish Events| Redis
-    Redis -->|Consume Task| Executor
-    
-    Executor -->|State Updates| PG
-    Executor -->|Pub/Sub Logs| Redis
-    Redis -->|Broadcast| WS_Server
+flowchart LR
+    Import["Import repository"] --> Index["Index files and symbols"]
+    Index --> Memory["Build repository memory"]
+    Memory --> Plan["Generate plan DAG"]
+    Plan --> Approval{"Plan approved?"}
+    Approval -->|No| Revision["Revise plan"]
+    Revision --> Plan
+    Approval -->|Yes| Job["Create execution job"]
+    Job --> Worker["Dispatch through outbox and Redis"]
+    Worker --> Sandbox["Execute in Docker sandbox"]
+    Sandbox --> Record["Record logs and mutations"]
+    Record --> Verify["Run verification checks"]
+    Verify --> Result{"Checks pass?"}
+    Result -->|Yes| Complete["Complete job"]
+    Result -->|No, repair allowed| Repair["Create bounded repair attempt"]
+    Repair --> Plan
+    Result -->|No repair| Failed["Fail job"]
 ```
 
-## Core Infrastructure
+## Architecture
 
-### 1. Backend Stack
-- **Framework**: FastAPI running on Python 3.12.
-- **Database**: PostgreSQL accessed asynchronously via `asyncpg` and SQLAlchemy 2.0. Database schema versioning is managed by Alembic.
-- **Tenant Isolation**: Implemented using PostgreSQL Row-Level Security (RLS) policies to ensure strict data separation between organizations and workspaces.
-- **Event Broker**: Redis is utilized for both stream-based reliable job queues (for background workers) and high-throughput Pub/Sub (for real-time WebSocket terminal log streaming).
-- **Transactional Outbox**: To guarantee event delivery, state mutations and their corresponding outbound events are committed atomically to PostgreSQL. An outbox relay polls these records and pushes them to Redis Streams, ensuring zero data loss during process crashes.
+```mermaid
+flowchart TB
+    Browser["Next.js 14 / React 18"] -->|HTTP and WebSocket| API["FastAPI API"]
+    API -->|SQLAlchemy / asyncpg| PostgreSQL[("PostgreSQL 16")]
+    API -->|Pub/Sub logs| Redis[("Redis 7")]
+    API -->|Transactional events| PostgreSQL
+    PostgreSQL --> Relay["Outbox relay"]
+    Relay -->|Redis Streams| Redis
+    Redis --> Worker["Forge worker"]
+    Worker --> Docker["Docker Engine"]
+    Docker --> Sandbox["Ephemeral execution container"]
+    Worker --> PostgreSQL
+    API --> GitHub["GitHub OAuth and API"]
+    Worker --> GitHub
+```
 
-### 2. Frontend Stack
-- **Framework**: Next.js 14 utilizing the App Router and React Server Components.
-- **State & Streaming**: Utilizes native WebSockets to stream standard output (stdout) and standard error (stderr) from the backend Docker containers directly to a custom web-based terminal component.
-- **Styling**: Vanilla CSS utilizing modern specifications (OKLCH color spaces, CSS Variables, fluid typography via `clamp()`) replacing utility-first frameworks like Tailwind for precise, bespoke aesthetic control.
+The repository keeps deployable applications in `apps/`, reusable infrastructure in `packages/`, domain logic in `services/`, schema history in `migrations/`, and container definitions in `docker/`.
 
-## Internal Engines
+### Backend
 
-### Repository Memory Engine
-The Repository Memory Engine is responsible for creating a semantic and structural understanding of an imported codebase.
-- **AST Parsing**: Utilizes Tree-sitter to parse source code into Abstract Syntax Trees.
-- **Symbol Extraction**: Extracts exact line numbers, signatures, and definitions for classes, functions, and variables across multiple programming languages.
-- **Dependency Graph**: Constructs an internal directed graph representing file-level dependencies and imports.
-- **Storage**: Indexes are persisted in PostgreSQL, facilitating rapid relational queries against structural codebase elements.
+- Python package requirement: Python 3.12 or newer. The codebase uses Python 3.12 type-parameter syntax.
+- Container runtime: Python 3.12.
+- FastAPI, Pydantic 2, SQLAlchemy 2, asyncpg, Alembic, Redis, LiteLLM, NetworkX, and Tree-sitter.
+- PostgreSQL is the system of record. Redis provides streams for worker delivery and Pub/Sub for live logs.
 
-### AI Context Engine
-To prevent Large Language Models (LLMs) from hallucinating unavailable dependencies or hallucinating internal business logic, the Context Engine dynamically grounds prompts.
-- **Context Injection**: During planning, the Context Engine retrieves up to 50 specific `SourceFileModel` contents and up to 20 precise `SymbolModel` definitions relevant to the user's intent.
-- **Prompt Assembly**: The retrieved state is rendered via Jinja2 templates into a strict system prompt inside a sandboxed environment, providing the LLM with exact, verifiable project context before it writes a single line of code.
+### Frontend
 
-### Planning Engine (Agent Orchestrator)
-Forge converts ambiguous human intent into a deterministic, verifiable graph of discrete tasks.
-- **DAG Generation**: The LLM outputs a JSON payload representing a Directed Acyclic Graph (DAG). Nodes represent distinct actions: Bash commands, file mutations, or verification scripts. Edges represent execution dependencies.
-- **Validation**: The planner enforces strict guardrails. For example, it utilizes predefined heuristic rules to prevent the AI from scheduling arbitrary build scripts (e.g., `npm run build`) unless the Context Engine confirms the script exists in the target repository's manifest (`package.json`).
+- Next.js 14.2.35 with the App Router.
+- React and React DOM 18.3.1.
+- TypeScript 5.9.3, Playwright, React Query, Zustand, Radix primitives, and custom CSS.
 
-### Execution Sandbox
-Safety and isolation are the primary directives of the execution phase.
-- **Docker Orchestration**: The execution worker spins up ephemeral Docker containers specifically designed for the target language environment (e.g., `node` or `python` sandbox images).
-- **Volume Mounting**: The target repository is mounted into the container as a workspace volume.
-- **Command Execution**: The worker executes the nodes of the DAG inside the container. The host machine is never directly exposed to AI-generated commands.
-- **Log Streaming**: Container output streams are captured asynchronously and pushed to Redis Pub/Sub, which routes them to the frontend WebSocket connections for real-time user visibility.
+### Execution and verification
 
-### Verification DAG and Self-Repair
-Forge employs a multi-pass diagnostic engine to ensure code correctness before committing changes.
-- **Diagnostic Interception**: If a command node fails (resulting in a non-zero exit code), the Verification DAG intercepts the failure.
-- **Failure Classification**: The system analyzes the stderr output to classify the failure type (e.g., syntax error, linter violation, failing unit test).
-- **Self-Repair Loop**: The error logs and the previously executed file states are routed to a repair worker. The repair worker instructs the LLM to generate a specific `Patch`. The patch is applied to the sandbox volume, and the failed node is retried.
-- **Transaction Rollback**: If the DAG cannot stabilize and reach a fully successful terminal state within a predefined maximum number of repair passes, the transaction is aborted. The local workspace is reset, preventing broken code from propagating.
+`apps/worker` constructs a `DockerSandbox` and consumes domain events from Redis. The runtime mounts a per-job workspace, applies limits, captures output, and persists execution state. Verification uses a network-disabled Docker sandbox. A local-process implementation remains available for trusted test fixtures and must not be used as an isolation boundary for untrusted code.
 
-## Security Architecture
+The worker mounts the host Docker socket in the Compose development stack. Access to that socket is effectively host-level access; deploy the worker only in a trusted environment and review the `DOCKER_GID` mapping for the host.
 
-- **Authentication**: Managed via GitHub OAuth2 integrations.
-- **Credential Management**: GitHub Personal Access Tokens (PAT) are heavily secured. They are encrypted at rest in the PostgreSQL database using AES-GCM (via the internal `CryptoService`).
-- **Decryption Lifecycle**: Tokens are only decrypted ephemerally in memory within the background worker process strictly at the moment a verified sandbox execution requires a `git push` back to the remote repository.
-- **Network Policies**: Docker sandbox containers are subject to strict network isolation to mitigate potential supply-chain vulnerabilities or rogue AI-generated scripts attempting to access internal network resources.
+## Repository layout
 
-## Setup and Deployment
+```text
+Forge/
+├── .github/
+│   ├── dependabot.yml
+│   └── pull_request_template.md
+├── apps/
+│   ├── api/
+│   ├── frontend/
+│   └── worker/
+├── docker/
+│   ├── Dockerfile.api
+│   ├── Dockerfile.frontend
+│   ├── Dockerfile.sandbox-node
+│   ├── Dockerfile.sandbox-python
+│   └── Dockerfile.worker
+├── docs/
+│   ├── archive/
+│   ├── ui/
+│   └── README.md
+├── migrations/
+├── packages/
+│   ├── database/
+│   ├── events/
+│   ├── sdk/
+│   └── shared/
+├── scripts/
+│   ├── database/
+│   ├── development/
+│   ├── diagnostics/
+│   └── windows/
+├── services/
+├── tests/
+│   ├── e2e/
+│   ├── fixtures/
+│   ├── integration/
+│   └── security/
+├── alembic.ini
+├── docker-compose.yml
+├── pyproject.toml
+└── uv.lock
+```
 
-### Prerequisites
-- Python 3.12+
-- Node.js 18+
-- Docker Engine and Docker Compose
-- `uv` (Astral's high-performance Python toolchain)
+See the [documentation index](docs/README.md) for current UI references and archived implementation reports.
 
-### Environment Configuration
-1. Duplicate `.env.example` to `.env` in the project root.
-2. Populate `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` via your GitHub Developer Settings.
-3. Generate a secure, high-entropy 32-byte string for `SECRET_KEY`.
+## Prerequisites
 
-### Initialization
-Start the persistence layer (PostgreSQL and Redis):
+- Python 3.12, matching the container images.
+- [`uv`](https://docs.astral.sh/uv/) for the locked Python environment.
+- Node.js 20+ and npm for local frontend development. The frontend image uses Node 24.
+- Docker Engine with the Compose plugin.
+- PostgreSQL 16 and Redis 7, either locally or through Compose.
+
+## Configuration
+
+Copy the example files before starting local services:
+
+```bash
+cp .env.example .env
+cp apps/frontend/.env.example apps/frontend/.env.local
+```
+
+On PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item apps/frontend/.env.example apps/frontend/.env.local
+```
+
+Important backend variables are listed below. The canonical defaults and the complete list live in [`.env.example`](.env.example).
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Async SQLAlchemy PostgreSQL connection URL. |
+| `REDIS_URL` | Redis Streams and Pub/Sub connection URL. |
+| `WORKSPACE_ROOT` | Host path used for cloned and execution workspaces. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth application credentials. |
+| `GITHUB_WEBHOOK_SECRET` | Signature secret for GitHub webhook delivery. |
+| `SECRET_KEY` | Application signing secret. Replace the development placeholder outside local use. |
+| `ENCRYPTION_KEY` | Key material used to protect stored provider credentials. Required in production. |
+| `FRONTEND_URL` / `CORS_ORIGINS` | Browser origin configuration. |
+| `SANDBOX_IMAGES` | Configured sandbox image allow-list. |
+| `DOCKER_GID` | Optional host Docker group ID supplied to the Compose worker. |
+
+`ForgeSettings` rejects the known development secret and missing encryption, database, Redis, GitHub OAuth, frontend, or sandbox configuration when `ENVIRONMENT=production`.
+
+## Local development
+
+### 1. Install backend dependencies
+
+```bash
+uv sync --frozen --all-extras
+```
+
+### 2. Start PostgreSQL and Redis
+
 ```bash
 docker compose up -d postgres redis
 ```
 
-Install backend dependencies using `uv` and execute the Alembic schema migrations:
+### 3. Apply migrations
+
 ```bash
-uv sync
-uv run scripts/database/run_migrations.py
+uv run alembic upgrade head
 ```
 
-### Running the Services
-The platform requires three distinct processes running concurrently.
+### 4. Start the API and worker
 
-1. **FastAPI Server**: Handles REST and WebSocket traffic.
+Run these in separate terminals:
+
 ```bash
 uv run uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. **Execution Worker**: Consumes the Redis Stream and orchestrates Docker containers.
 ```bash
-uv run python apps/worker/main.py
+uv run python -m apps.worker.main
 ```
 
-3. **Next.js Frontend**: Serves the user interface.
+### 5. Start the frontend
+
 ```bash
 cd apps/frontend
-npm install
+npm ci
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`.
+Open `http://localhost:3000`. The API documentation is available at `http://localhost:8000/docs`.
+
+## Compose stack
+
+The Compose file starts PostgreSQL, Redis, a one-shot Alembic migration service, the API, and the worker:
+
+```bash
+docker compose config
+docker compose up --build
+```
+
+The frontend is intentionally run separately for local development or built from `docker/Dockerfile.frontend`.
+
+For production-like configuration, set `ENVIRONMENT=production` and provide every required secret and external URL. Do not use the development PostgreSQL credentials or expose the database and Redis ports publicly.
+
+## Container images
+
+The canonical Dockerfiles are all under `docker/`:
+
+```bash
+docker build -f docker/Dockerfile.api -t forge-api:local .
+docker build -f docker/Dockerfile.worker -t forge-worker:local .
+docker build -f docker/Dockerfile.frontend -t forge-frontend:local .
+docker build -f docker/Dockerfile.sandbox-python -t forge-sandbox-python:local .
+docker build -f docker/Dockerfile.sandbox-node -t forge-sandbox-node:local .
+```
+
+Both sandbox definitions set a non-root runtime user. Build both images and verify that `id -u` is not `0` before deploying sandbox changes.
+
+## API surface
+
+FastAPI exposes OpenAPI documentation at `/docs`. Major route groups include:
+
+| Route | Responsibility |
+| --- | --- |
+| `GET /health` | Process health and runtime resource summary. |
+| `GET /ready` | PostgreSQL and Redis readiness. |
+| `/api/v1/auth/*` | GitHub OAuth, sessions, current user, and provider settings. |
+| `/api/v1/repositories/*` | Repository import and listing. |
+| `/api/v1/memory/*` | Index jobs and stored symbols. |
+| `/api/v1/plans/*` | Plan creation, approval, revision, and listing. |
+| `/api/v1/executions/*` | Execution jobs, logs, and mutations. |
+| `/api/v1/verifications/*` | Verification job creation and status. |
+| `/api/v1/patches/*` | Patch generation, acceptance, rejection, and revision. |
+| `/api/v1/context/*` | Context snapshots and agent interactions. |
+| `/api/v1/workspaces/*` | Workspace membership and administration. |
+| `/api/v1/github/webhooks/` | GitHub webhook receiver. |
+| `/api/v1/executions/{job_id}/ws` | Live execution log WebSocket. |
+
+Protected routes use the authentication and permission dependencies in `services/auth`. Tenant-aware database access is backed by PostgreSQL RLS migrations and tested separately under `tests/security`.
+
+## Quality checks
+
+Backend:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+uv run pytest tests -v
+```
+
+Frontend:
+
+```bash
+cd apps/frontend
+npm ci
+npm run lint
+npm run typecheck
+npm run build
+npx playwright test
+```
+
+Docker-dependent tests require a running Docker daemon. PostgreSQL RLS and full workflow tests may also require the services and environment variables described by their fixtures.
+
+## Operational scripts
+
+- `scripts/database/reset_db.py` resets only a local database whose name contains `test`; it requires `ENVIRONMENT=test` and an explicit `--confirm` flag.
+- `scripts/database/reset_stuck_indexing_jobs.py` marks pending indexing jobs as failed so operators can retry them.
+- `scripts/development/` contains Windows/Scoop development helpers retained for contributors who use that environment.
+- `scripts/diagnostics/` contains manual PostgreSQL and Redis probes; these are not pytest tests.
+- `scripts/windows/migrate.ps1` performs guarded Windows migration setup.
+
+Prefer Docker Compose and the direct `uv run alembic` command for portable development.
+
+## Security
+
+Forge executes repository code and handles GitHub and provider credentials. Review [SECURITY.md](SECURITY.md) before deployment or disclosure. In particular:
+
+- never commit `.env` files, access tokens, private keys, cloned repositories, or execution workspaces;
+- treat Docker socket access as host-level privilege;
+- keep untrusted execution in Docker with explicit resource and network policy;
+- use production-only secret material and rotate any credential suspected of exposure;
+- keep PostgreSQL RLS and authorization tests enabled.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, branch conventions, required checks, and pull request expectations.
+
+## Project status and versioning
+
+The Python package and frontend currently report `0.1.0-alpha.1`. Release history and post-release maintenance work are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+No open-source license has been selected. Until the maintainer adds a license, the absence of a license means no general permission to copy, modify, or redistribute the code is granted.

@@ -1,4 +1,4 @@
-# Forge AI — Overhaul Verification
+# Forge UI Overhaul Verification (Historical)
 
 ## Test Checklist
 - **Lint Passes**: ✅ (Next.js build checks passed with minor exhaustive-deps warnings).

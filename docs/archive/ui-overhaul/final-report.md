@@ -1,4 +1,4 @@
-# Forge AI — UI Overhaul Final Report
+# Forge UI Overhaul Final Report (Historical)
 
 ## Summary
 The UI overhaul for Forge AI has been completed, replacing the initial dark mode UI with a premium, bright, spacious "Living Core" design utilizing glassmorphism and deep blue tokens. The background Blob Scene has been precisely integrated and layered beneath the new floating `AppShell`.

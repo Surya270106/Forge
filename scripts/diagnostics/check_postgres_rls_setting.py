@@ -5,7 +5,7 @@ from sqlalchemy import text
 from packages.database.engine import get_engine, get_session_factory
 
 
-async def main():
+async def main() -> None:
     engine = get_engine("postgresql+asyncpg://forge:forge@localhost:5432/forge")
     session_maker = get_session_factory(engine)
     async with session_maker() as session:

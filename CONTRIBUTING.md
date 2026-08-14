@@ -31,13 +31,19 @@ npx playwright test
 
 For container or execution changes, also run `docker compose config`, build the affected Dockerfiles, and run the Docker integration and security tests.
 
-## Branches and pull requests
+## Changes and pull requests
 
-- Use a descriptive branch such as `feat/short-name`, `fix/short-name`, `docs/short-name`, or `chore/short-name`.
-- Keep commits scoped and use an imperative, conventional subject where practical.
+- If a branch is used, give it a short name that describes the affected area and outcome.
+- Keep commits scoped and use a clear, human-readable imperative subject. Prefixes such as
+  `feat:`, `fix:`, and `chore:` are not required.
 - Explain the behavior and motivation, identify migrations or security impact, and report the exact checks run.
 - Update tests and documentation when interfaces, configuration, or operational behavior change.
 - Keep unrelated formatting and refactors out of the pull request.
+
+The internal-alpha test suite includes intentionally skipped scenarios whose mocks or
+workflows need revision. Do not describe skipped coverage as passing. Report the exact
+pass, fail, skip, and infrastructure-blocked results, including whether Docker was
+available.
 
 ## Security
 

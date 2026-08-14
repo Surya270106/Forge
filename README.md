@@ -119,7 +119,11 @@ Forge/
 └── uv.lock
 ```
 
-See the [documentation index](docs/README.md) for current UI references and archived implementation reports.
+See the [documentation index](docs/README.md) for current engineering references. Area
+guides also describe the [application entry points](apps/README.md),
+[container definitions](docker/README.md), [shared packages](packages/README.md),
+[domain services](services/README.md), [operational scripts](scripts/README.md), and
+[verification suites](tests/README.md).
 
 ## Prerequisites
 
@@ -276,6 +280,8 @@ npx playwright test
 ```
 
 Docker-dependent tests require a running Docker daemon. PostgreSQL RLS and full workflow tests may also require the services and environment variables described by their fixtures.
+The internal-alpha suites currently contain explicitly skipped backend and Playwright
+scenarios; review the test summary and report skips separately from passing coverage.
 
 ## Operational scripts
 
@@ -299,7 +305,7 @@ Forge executes repository code and handles GitHub and provider credentials. Revi
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, branch conventions, required checks, and pull request expectations.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, change conventions, required checks, and pull request expectations.
 
 ## Project status and versioning
 

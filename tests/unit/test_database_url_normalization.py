@@ -17,6 +17,12 @@ def test_postgresql_sslmode_is_translated_and_other_query_params_remain():
     )
 
 
+def test_neon_channel_binding_parameter_is_removed_for_asyncpg_but_tls_remains():
+    assert normalize_async_database_url(
+        "postgresql://forge:password@db.neon.tech/forge?sslmode=require&channel_binding=require"
+    ) == "postgresql+asyncpg://forge:password@db.neon.tech/forge?ssl=require"
+
+
 def test_existing_asyncpg_url_is_preserved():
     value = "postgresql+asyncpg://forge:password@db.internal:5432/forge"
     assert normalize_async_database_url(value) == value

@@ -14,10 +14,13 @@ def normalize_async_database_url(value: str | None) -> str | None:
         "postgres": "postgresql+asyncpg",
         "postgresql": "postgresql+asyncpg",
     }.get(parsed.scheme, parsed.scheme)
-    query = [
-        ("ssl" if key == "sslmode" else key, item)
-        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
-    ]
+    query = []
+    for key, item in parse_qsl(parsed.query, keep_blank_values=True):
+        # asyncpg does not implement libpq's channel_binding URL parameter.
+        # Keep sslmode=require (translated to ssl=require) so TLS remains enabled.
+        if key == "channel_binding":
+            continue
+        query.append(("ssl" if key == "sslmode" else key, item))
     return urlunsplit((scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 

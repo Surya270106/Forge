@@ -12,7 +12,7 @@ services:
       /app/.venv/bin/uvicorn apps.api.main:app --host 0.0.0.0 --port
       "${PORT:-${API_PORT:-8000}}"'
     healthCheckPath: /ready
-    maxShutdownDelaySeconds: 60
+  
     envVars:
       - key: ENVIRONMENT
         value: production

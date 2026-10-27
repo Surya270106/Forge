@@ -1,7 +1,24 @@
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
+
+
+def normalize_async_database_url(value: str | None) -> str | None:
+    """Normalize PostgreSQL URLs for SQLAlchemy's asyncpg driver."""
+    if not value:
+        return value
+    parsed = urlsplit(value)
+    scheme = {
+        "postgres": "postgresql+asyncpg",
+        "postgresql": "postgresql+asyncpg",
+    }.get(parsed.scheme, parsed.scheme)
+    query = [
+        ("ssl" if key == "sslmode" else key, item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunsplit((scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
 class ForgeSettings(BaseSettings):
@@ -54,7 +71,7 @@ class ForgeSettings(BaseSettings):
                 raise ValueError("Valid production database_url required")
             if not self.redis_url:
                 raise ValueError("redis_url required in production")
-            if not self.github_client_id or not self.github_client_secret.get_secret_value():
+            if not self.github_client_id or not self.github_client_secret or not self.github_client_secret.get_secret_value():
                 raise ValueError("GitHub OAuth config required in production")
             if self.frontend_url == "http://localhost:3000":
                 raise ValueError("frontend_url must be updated in production")

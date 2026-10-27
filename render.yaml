@@ -1,0 +1,54 @@
+services:
+  - type: keyvalue
+    name: forge-redis
+    plan: 1g
+    region: oregon
+    ipAllowList: []
+    persistenceMode: journal-snapshot
+
+  - type: web
+    name: forge-api
+    runtime: docker
+    plan: 1c-2g
+    region: oregon
+    rootDir: .
+    dockerfilePath: ./docker/Dockerfile.api
+    dockerContext: .
+    preDeployCommand: /app/.venv/bin/alembic upgrade head
+    healthCheckPath: /ready
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: forge-postgres
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: SANDBOX_IMAGES
+        value: '["python:3.12-slim", "node:20-slim"]'
+
+databases:
+  - name: forge-postgres
+    databaseName: forge
+    user: forge_admin
+    plan: 0.5c-1g
+    region: oregon
+    postgresMajorVersion: "16"
+    diskSizeGB: 15
+    ipAllowList: []

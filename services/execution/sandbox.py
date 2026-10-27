@@ -104,7 +104,7 @@ class DockerSandbox(SandboxRuntime):
     Mounts the workspace into a container and executes commands via docker exec.
     """
 
-    def __init__(self, workspace_root: str, image: str = "node:20", timeout_seconds: int = 300, network_disabled: bool = False):
+    def __init__(self, workspace_root: str, image: str = "node:20", timeout_seconds: int = 300, network_disabled: bool = True):
         self.workspace_root = workspace_root
         self.image = image
         self.container_id: str | None = None

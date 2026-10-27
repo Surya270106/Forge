@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Check, LoaderCircle, Play } from 'lucide-react';
 
 import { env } from '../../../config/env';
@@ -47,7 +47,8 @@ function nodeDetail(node: PlanNode) {
   return JSON.stringify(node.parameters, null, 2);
 }
 
-export default function TaskPage({ params }: { params: { id: string } }) {
+export default function TaskPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -72,7 +73,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
   const fetchPlan = useCallback(async () => {
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}`,
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${id}`,
         { headers: authHeaders() },
       );
 
@@ -88,7 +89,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, params.id]);
+  }, [authHeaders, id]);
 
   const fetchExecution = useCallback(
     async (jobId: string) => {
@@ -147,8 +148,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
 
     fetchExecution(executionId);
     
-    let wsUrl = env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
-    wsUrl = wsUrl.replace(/^http/, 'ws') + `/api/v1/executions/${executionId}/ws`;
+    const wsUrl = `${env.NEXT_PUBLIC_EVENT_URL}/api/v1/executions/${executionId}/ws`;
     
     const ws = new WebSocket(wsUrl);
     
@@ -190,7 +190,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
 
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${params.id}/approve`,
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${id}/approve`,
         {
           method: 'POST',
           headers: authHeaders(),
@@ -220,7 +220,7 @@ export default function TaskPage({ params }: { params: { id: string } }) {
 
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${params.id}`,
+        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${id}`,
         {
           method: 'POST',
           headers: {

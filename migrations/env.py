@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from packages.database.base import Base
 from packages.database.models import *
+from packages.shared.config import normalize_async_database_url
 
 config = context.config
 
@@ -18,7 +19,9 @@ import os
 
 db_url = os.environ.get("DATABASE_URL")
 if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+    normalized_db_url = normalize_async_database_url(db_url) or db_url
+    # Alembic's ConfigParser interpolates percent-encoded URL credentials.
+    config.set_main_option("sqlalchemy.url", normalized_db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

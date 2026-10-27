@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from packages.shared.config import normalize_async_database_url
+
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
@@ -14,6 +16,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def get_engine(database_url: str, echo: bool = False, pool_size: int = 10) -> AsyncEngine:
     global _engine
     if _engine is None:
+        database_url = normalize_async_database_url(database_url) or database_url
         _engine = create_async_engine(
             database_url,
             echo=echo,

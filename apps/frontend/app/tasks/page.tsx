@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { env } from "../../config/env";
 import { AppShell } from "../components/AppShell";
 
 type Plan = { id: string; intent: string; status: string; created_at: string };
@@ -12,8 +11,8 @@ export default function RunsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   useEffect(() => {
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": localStorage.getItem("forge_org_id") || "" },
+    fetch(`/api/v1/plans`, {
+      headers: { "X-Organization-Id": localStorage.getItem("forge_org_id") || "" },
     }).then(async (response) => { if (response.ok) { const data = await response.json(); setRuns(data.plans || []); } })
       .catch(console.error).finally(() => setLoading(false));
   }, []);

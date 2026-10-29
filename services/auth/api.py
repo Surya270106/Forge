@@ -1,17 +1,23 @@
+import json
+import secrets
 from datetime import timedelta
+from uuid import UUID
 
 import httpx
+import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
 from packages.database.models.auth import OrganizationModel, RoleBindingModel, UserModel
 from packages.shared.config import get_settings
 from packages.shared.identifiers import generate_id
-from services.auth.dependencies import get_current_user
+from services.auth.dependencies import get_current_user, require_permission
 from services.auth.jwt import create_access_token
+from packages.database.tenant import clear_tenant, set_tenant
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -20,7 +26,8 @@ GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 
 @router.get("/github/login")
 async def github_login(session: AsyncSession = Depends(get_session)):
@@ -33,7 +40,7 @@ async def github_login(session: AsyncSession = Depends(get_session)):
     oauth_state = OAuthStateModel(
         id=generate_id(),
         state=state,
-        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=10)
     )
     session.add(oauth_state)
     await session.commit()
@@ -44,18 +51,19 @@ async def github_login(session: AsyncSession = Depends(get_session)):
 @router.get("/github/callback")
 async def github_callback(code: str, state: str, request: Request, session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import OAuthStateModel, SessionModel
-    import secrets
 
     # Verify state
-    stmt = select(OAuthStateModel).where(OAuthStateModel.state == state)
-    result = await session.execute(stmt)
-    oauth_state = result.scalar_one_or_none()
-
-    if not oauth_state or oauth_state.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+    # Consume the state atomically before any external OAuth request. Concurrent
+    # callbacks cannot exchange the same state twice.
+    now = datetime.now(UTC).replace(tzinfo=None)
+    consumed = await session.execute(
+        delete(OAuthStateModel)
+        .where(OAuthStateModel.state == state, OAuthStateModel.expires_at > now)
+        .returning(OAuthStateModel.id)
+    )
+    if consumed.scalar_one_or_none() is None:
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
-    
-    # Delete state so it can't be reused
-    await session.delete(oauth_state)
+    await session.commit()
 
     settings = get_settings()
     if not settings.github_client_id or not settings.github_client_secret:
@@ -104,11 +112,13 @@ async def github_callback(code: str, state: str, request: Request, session: Asyn
         )
         session.add(user)
 
-        org = OrganizationModel(id=generate_id(), name=f"{user.name}'s Workspace", billing_plan="FREE", is_active=True)
+        org = OrganizationModel(id=generate_id(), name=f"{user.name[:150]}'s Workspace {user.id}", billing_plan="FREE", is_active=True)
         session.add(org)
-        
+
         await session.flush()
 
+        set_tenant(org.id)
+        await session.execute(text("SELECT set_config('forge.organization_id', :org, true)"), {"org": str(org.id)})
         binding = RoleBindingModel(id=generate_id(), organization_id=org.id, user_id=user.id, role="OWNER")
         session.add(binding)
     else:
@@ -120,7 +130,7 @@ async def github_callback(code: str, state: str, request: Request, session: Asyn
         id=generate_id(),
         user_id=user.id,
         session_token=session_token,
-        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7),
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(days=7),
         is_active=True,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent")
@@ -128,53 +138,83 @@ async def github_callback(code: str, state: str, request: Request, session: Asyn
     session.add(new_session)
 
     await session.commit()
-
-    org_stmt = select(RoleBindingModel.organization_id).where(RoleBindingModel.user_id == user.id)
-    org_result = await session.execute(org_stmt)
-    org_ids = [row[0] for row in org_result.fetchall()]
+    clear_tenant()
+    org_ids = [row[0] for row in await _discover_workspaces(session, session_token)]
     default_org_id = org_ids[0] if org_ids else None
 
     # We also keep JWT for statelessness or we can just use the opaque session_token
     # Since the system already has JWT logic, we'll embed the session_id in the JWT to allow hybrid approaches
     jwt_token = create_access_token(data={"sub": str(user.id), "email": user.email, "session_id": str(new_session.id), "session_token": session_token}, expires_delta=timedelta(days=7))
 
-    frontend_url = settings.frontend_url
-    redirect_url = f"{frontend_url}/login/callback?org_id={str(default_org_id)}&token={jwt_token}"
+    exchange_code = secrets.token_urlsafe(32)
+    redis_client = redis_async.from_url(settings.redis_url)
+    try:
+        stored = await redis_client.set(
+            f"forge:login-exchange:{exchange_code}",
+            json.dumps({"token": jwt_token, "org_id": str(default_org_id)}),
+            ex=60,
+            nx=True,
+        )
+        if not stored:
+            raise HTTPException(status_code=503, detail="Login exchange unavailable")
+    finally:
+        await redis_client.aclose()
+
+    frontend_url = settings.frontend_url.rstrip("/")
+    redirect_url = f"{frontend_url}/login/callback?code={exchange_code}"
 
     response = RedirectResponse(url=redirect_url)
     return response
 
-@router.post("/logout")
-async def logout(request: Request, session: AsyncSession = Depends(get_session)):
-    from packages.database.models.auth import SessionModel
-    
-    # Try to invalidate in DB if we have a valid JWT with a session ID
-    token = request.cookies.get("forge_session")
-    if token:
-        from services.auth.jwt import decode_access_token
-        try:
-            payload = decode_access_token(token)
-            session_id = payload.get("session_id")
-            if session_id:
-                stmt = select(SessionModel).where(SessionModel.id == session_id)
-                result = await session.execute(stmt)
-                db_session = result.scalar_one_or_none()
-                if db_session:
-                    db_session.is_active = False
-                    await session.commit()
-        except Exception:
-            pass
 
-    response = RedirectResponse(url="/")
-    response.delete_cookie("forge_session", httponly=True, secure=True, samesite="lax")
-    return response
+class LoginExchangeRequest(BaseModel):
+    code: str
+
+
+@router.post("/github/exchange")
+async def github_exchange(request: LoginExchangeRequest, http_request: Request):
+    # Exchange codes are redeemed by the frontend server. Browser-origin
+    # requests must not receive a bearer token as a JSON response.
+    if http_request.headers.get("origin"):
+        raise HTTPException(status_code=403, detail="Server-side exchange required")
+    if not request.code or len(request.code) > 128:
+        raise HTTPException(status_code=400, detail="Invalid login exchange code")
+    redis_client = redis_async.from_url(get_settings().redis_url)
+    try:
+        payload = await redis_client.getdel(f"forge:login-exchange:{request.code}")
+    finally:
+        await redis_client.aclose()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Login exchange expired or already used")
+    return json.loads(payload)
+
+@router.post("/logout")
+async def logout(request: Request, user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    from packages.database.models.auth import SessionModel
+    from services.auth.jwt import decode_access_token
+
+    token = request.cookies.get("forge_session")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.removeprefix("Bearer ") if auth_header.startswith("Bearer ") else None
+    if not token:
+        raise HTTPException(status_code=401, detail="Session not found")
+    payload = decode_access_token(token)
+    if not payload or "session_id" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    db_session = await session.get(SessionModel, UUID(payload["session_id"]))
+    if not db_session or str(db_session.user_id) != user["id"]:
+        raise HTTPException(status_code=401, detail="Session not found")
+    db_session.is_active = False
+    await session.commit()
+    return {"status": "signed_out"}
 
 @router.get("/sessions")
 async def list_sessions(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import SessionModel
     stmt = select(SessionModel).where(
         SessionModel.user_id == user["id"],
-        SessionModel.is_active == True
+        SessionModel.is_active.is_(True)
     )
     result = await session.execute(stmt)
     sessions = []
@@ -197,47 +237,48 @@ async def revoke_session(session_id: str, user: dict = Depends(get_current_user)
     )
     result = await session.execute(stmt)
     db_session = result.scalar_one_or_none()
-    
+
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
-        
+
     db_session.is_active = False
     await session.commit()
     return {"status": "revoked"}
 
 @router.get("/me")
 async def get_current_user_profile(user: dict = Depends(get_current_user)):
-    return user
+    return {"id": user["id"], "email": user["email"], "name": user["name"]}
 
 
 @router.get("/workspaces")
 async def get_workspaces(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    stmt = (
-        select(OrganizationModel, RoleBindingModel.role)
-        .join(RoleBindingModel, OrganizationModel.id == RoleBindingModel.organization_id)
-        .where(RoleBindingModel.user_id == user["id"])
-        .where(OrganizationModel.is_active)
-    )
-    result = await session.execute(stmt)
+    rows = await _discover_workspaces(session, user["session_token"])
+    return {"workspaces": [
+        {"id": str(org_id), "name": name, "role": role, "billing_plan": plan}
+        for org_id, name, role, plan in rows
+    ]}
 
-    workspaces = []
-    for org, role in result.all():
-        workspaces.append({"id": str(org.id), "name": org.name, "role": role, "billing_plan": org.billing_plan})
 
-    return {"workspaces": workspaces}
+async def _discover_workspaces(session: AsyncSession, session_token: str):
+    """Query only bindings visible to a verified, active database session."""
+    await session.execute(text("SELECT set_config('forge.session_token', :token, true)"), {"token": session_token})
+    result = await session.execute(text("""
+        SELECT o.id, o.name, b.role, o.billing_plan
+        FROM role_bindings b JOIN organizations o ON o.id = b.organization_id
+        WHERE o.is_active
+        ORDER BY o.created_at, o.id
+    """))
+    return result.all()
 
 
 @router.get("/workspaces/current/provider")
-async def get_provider_config(request: Request, session: AsyncSession = Depends(get_session)):
-    org_id_str = request.headers.get("X-Organization-Id")
-    if not org_id_str:
-        raise HTTPException(status_code=400, detail="Missing X-Organization-Id")
-
-    stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id_str)
+async def get_provider_config(org_id: UUID = Depends(require_permission("workspace:settings:read")), session: AsyncSession = Depends(get_session)):
+    stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id)
     result = await session.execute(stmt)
     config = result.scalar_one_or_none()
 
     if config and "api_key" in config:
+        config = dict(config)
         from packages.shared.crypto import CryptoService
         decrypted_key = CryptoService.decrypt(config["api_key"])
         config["api_key"] = f"sk-...{decrypted_key[-4:]}" if len(decrypted_key) > 4 else "sk-..."
@@ -246,10 +287,7 @@ async def get_provider_config(request: Request, session: AsyncSession = Depends(
 
 
 @router.put("/workspaces/current/provider")
-async def update_provider_config(request: Request, session: AsyncSession = Depends(get_session)):
-    org_id_str = request.headers.get("X-Organization-Id")
-    if not org_id_str:
-        raise HTTPException(status_code=400, detail="Missing X-Organization-Id")
+async def update_provider_config(request: Request, org_id: UUID = Depends(require_permission("workspace:settings:write")), session: AsyncSession = Depends(get_session)):
 
     from packages.shared.crypto import CryptoService
 
@@ -263,7 +301,7 @@ async def update_provider_config(request: Request, session: AsyncSession = Depen
     if not provider or not api_key:
         raise HTTPException(status_code=400, detail="Provider and API key are required")
 
-    stmt = select(OrganizationModel).where(OrganizationModel.id == org_id_str)
+    stmt = select(OrganizationModel).where(OrganizationModel.id == org_id)
     result = await session.execute(stmt)
     org = result.scalar_one_or_none()
 
@@ -289,10 +327,7 @@ async def update_provider_config(request: Request, session: AsyncSession = Depen
     return {"status": "updated"}
 
 @router.post("/workspaces/current/provider/test")
-async def test_provider_config(request: Request, session: AsyncSession = Depends(get_session)):
-    org_id_str = request.headers.get("X-Organization-Id")
-    if not org_id_str:
-        raise HTTPException(status_code=400, detail="Missing X-Organization-Id")
+async def test_provider_config(request: Request, org_id: UUID = Depends(require_permission("workspace:settings:write")), session: AsyncSession = Depends(get_session)):
 
     from packages.shared.crypto import CryptoService
 
@@ -302,7 +337,7 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
 
     if not provider or not api_key:
         # fallback to db if none provided
-        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id_str)
+        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id)
         result = await session.execute(stmt)
         config = result.scalar_one_or_none()
         if not config:
@@ -310,9 +345,12 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
         provider = config.get("provider")
         api_key = CryptoService.decrypt(config.get("api_key", ""))
 
+    if not isinstance(provider, str) or not provider.strip() or not isinstance(api_key, str) or not api_key:
+        raise HTTPException(status_code=400, detail="Provider and API key are required")
+
     # if it's masked from the frontend, fetch from DB
     if api_key.startswith("sk-..."):
-        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id_str)
+        stmt = select(OrganizationModel.provider_config).where(OrganizationModel.id == org_id)
         result = await session.execute(stmt)
         config = result.scalar_one_or_none()
         if not config:
@@ -328,7 +366,7 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
                     timeout=10.0,
                 )
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=400, detail=f"OpenAI error: {resp.text}")
+                    raise HTTPException(status_code=400, detail="OpenAI rejected the provider key")
             elif provider.lower() == "anthropic":
                 # Anthropic doesn't have a simple /models endpoint, test via a cheap message
                 resp = await client.post(
@@ -338,7 +376,7 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
                     timeout=10.0,
                 )
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=400, detail=f"Anthropic error: {resp.text}")
+                    raise HTTPException(status_code=400, detail="Anthropic rejected the provider key")
             elif provider.lower() == "groq":
                 resp = await client.get(
                     "https://api.groq.com/openai/v1/models",
@@ -346,12 +384,12 @@ async def test_provider_config(request: Request, session: AsyncSession = Depends
                     timeout=10.0,
                 )
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=400, detail=f"Groq error: {resp.text}")
+                    raise HTTPException(status_code=400, detail="Groq rejected the provider key")
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
     except Exception as e:
         if isinstance(e, HTTPException):
             raise
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Provider connection failed") from e
 
     return {"status": "ok", "message": "Connection successful"}

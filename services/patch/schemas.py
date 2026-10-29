@@ -19,7 +19,12 @@ class PatchResponse(BaseModel):
     pull_request_url: str | None
     pull_request_number: int | None
     branch_name: str | None
+    branch_url: str | None
     commit_sha: str | None
+    base_commit_sha: str | None
+    review_digest: str | None
+    publish_status: str
+    publish_error: str | None
     reviewed_at: datetime | None
     reviewed_by: UUID | None
 
@@ -28,7 +33,7 @@ class PatchResponse(BaseModel):
 
 
 class AcceptPatchRequest(BaseModel):
-    pass
+    review_digest: str
 
 
 class RejectPatchRequest(BaseModel):

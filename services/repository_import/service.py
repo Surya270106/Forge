@@ -28,7 +28,9 @@ class RepositoryService:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def register_repository_for_import(self, organization_id: UUID, req: ImportRepositoryRequest) -> tuple[RepositoryModel, ImportJobModel]:
+    async def register_repository_for_import(
+        self, organization_id: UUID, req: ImportRepositoryRequest, requested_by: UUID | None = None
+    ) -> tuple[RepositoryModel, ImportJobModel]:
         # Check if repository already exists for this org
         repo = await self.get_repository_by_name(organization_id, req.owner, req.name)
 
@@ -57,6 +59,8 @@ class RepositoryService:
 
             repo.status = RepositoryStatus.PENDING
             repo.clone_url = req.clone_url
+            repo.default_branch = req.branch
+            repo.is_private = req.is_private
 
         # Create import job
         job = ImportJobModel(
@@ -65,6 +69,7 @@ class RepositoryService:
             repository_id=repo.id,
             status=ImportJobStatus.PENDING,
             branch=req.branch,
+            metadata_={"requested_by": str(requested_by)} if requested_by else None,
         )
         self.session.add(job)
 

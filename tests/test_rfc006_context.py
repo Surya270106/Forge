@@ -1,10 +1,14 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import patch as mock_patch
 
 import jinja2
 import pytest
+from litellm import ModelResponse
 
-from packages.database.models.context import ModelProvider, PromptTemplateModel
+from packages.database.models.context import AgentInteractionModel, ModelProvider, PromptTemplateModel
 from packages.database.models.memory import SymbolModel
+from packages.shared.errors import ConflictError
 from packages.shared.identifiers import generate_id
 from services.context_engine.service import AgentOrchestrator, PromptManager
 
@@ -77,13 +81,33 @@ def test_prompt_manager_jinja2_secure():
         PromptManager.render(template, context)
 
 
-@pytest.mark.skip(reason="Needs updated mock for ContextEngine HTTP call")
 @pytest.mark.asyncio
 async def test_agent_orchestrator_invocation(mock_session, org_id, repo_id):
     orchestrator = AgentOrchestrator(mock_session, org_id)
     orchestrator.publisher = AsyncMock()
 
-    interaction = await orchestrator.invoke_agent(repository_id=repo_id, query="help me", template_name="test_template")
+    orchestrator.assembler.assemble_context = AsyncMock(
+        return_value={
+            "query": "help me",
+            "symbols": [{"name": "MyClass", "kind": "class"}],
+            "files": [],
+        }
+    )
+    mock_session.get = AsyncMock(
+        return_value=SimpleNamespace(
+            provider_config={
+                "provider": "local",
+                "model": "test-model",
+                "api_key": "encrypted",
+            }
+        )
+    )
+    response = ModelResponse(choices=[{"message": {"content": "Here is the plan to achieve your intent..."}}])
+    with (
+        mock_patch("packages.shared.crypto.CryptoService.decrypt", return_value="test-key"),
+        mock_patch("litellm.acompletion", new=AsyncMock(return_value=response)),
+    ):
+        interaction = await orchestrator.invoke_agent(repository_id=repo_id, query="help me", template_name="test_template")
 
     assert interaction.provider == ModelProvider.LOCAL
     assert interaction.response_text == "Here is the plan to achieve your intent..."
@@ -103,6 +127,33 @@ def test_prompt_manager_jinja2_unsafe_attribute():
     context = {"query": "test"}
     with pytest.raises(jinja2.exceptions.SecurityError):
         PromptManager.render(template, context)
+
+
+@pytest.mark.asyncio
+async def test_missing_provider_key_does_not_return_fake_interaction(mock_session, org_id, repo_id):
+    orchestrator = AgentOrchestrator(mock_session, org_id)
+    orchestrator.assembler.assemble_context = AsyncMock(return_value={"query": "help", "symbols": [], "files": []})
+    mock_session.get = AsyncMock(return_value=SimpleNamespace(provider_config={}))
+    with (
+        mock_patch("packages.shared.crypto.CryptoService.decrypt", return_value=""),
+        pytest.raises(ConflictError, match="Configure a model provider"),
+    ):
+        await orchestrator.invoke_agent(repo_id, "help", "test_template")
+
+
+@pytest.mark.asyncio
+async def test_invalid_provider_response_does_not_create_interaction(mock_session, org_id, repo_id):
+    orchestrator = AgentOrchestrator(mock_session, org_id)
+    orchestrator.assembler.assemble_context = AsyncMock(return_value={"query": "help", "symbols": [], "files": []})
+    mock_session.get = AsyncMock(return_value=SimpleNamespace(provider_config={"provider": "openai", "model": "test-model", "api_key": "encrypted"}))
+    with (
+        mock_patch("packages.shared.crypto.CryptoService.decrypt", return_value="test-key"),
+        mock_patch("litellm.acompletion", new=AsyncMock(return_value=SimpleNamespace())),
+        pytest.raises(ConflictError, match="Model provider returned an invalid response"),
+    ):
+        await orchestrator.invoke_agent(repo_id, "help", "test_template")
+    assert not any(isinstance(call.args[0], AgentInteractionModel) for call in mock_session.add.call_args_list)
+    mock_session.commit.assert_not_awaited()
 
 
 def test_prompt_manager_jinja2_missing_variable():

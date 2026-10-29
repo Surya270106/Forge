@@ -8,7 +8,7 @@ services:
     dockerfilePath: ./docker/Dockerfile.api
     dockerContext: .
     dockerCommand: /bin/sh /app/docker/start-api.sh
-    healthCheckPath: /ready
+    healthCheckPath: /health
   
     envVars:
       - key: ENVIRONMENT

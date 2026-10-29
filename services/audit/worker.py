@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -26,12 +26,13 @@ async def handle_audit_event(payload: dict[str, Any], session: AsyncSession) -> 
         # We need to extract actor_id and repository_id if available.
         # This requires looking into the specific payload structure or metadata.
         # For simplicity, we assume some common payload keys if present.
-        event_payload = payload.get("payload", {})
-        if isinstance(event_payload, str):
+        event_payload_raw = payload.get("payload", {})
+        if isinstance(event_payload_raw, str):
             try:
-                event_payload = json.loads(event_payload)
+                event_payload_raw = json.loads(event_payload_raw)
             except json.JSONDecodeError:
-                pass
+                event_payload_raw = {}
+        event_payload = event_payload_raw if isinstance(event_payload_raw, dict) else {}
 
         repository_id = None
         if "repository_id" in event_payload:
@@ -50,7 +51,7 @@ async def handle_audit_event(payload: dict[str, Any], session: AsyncSession) -> 
         if occurred_at_str:
             timestamp = datetime.fromisoformat(occurred_at_str)
         else:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(UTC)
 
         audit_log = AuditLogModel(
             organization_id=organization_id,
@@ -65,8 +66,8 @@ async def handle_audit_event(payload: dict[str, Any], session: AsyncSession) -> 
         )
 
         session.add(audit_log)
-        await session.commit()
         logger.debug("projected_audit_log", event_type=event_type, aggregate_id=str(aggregate_id))
 
-    except Exception as e:
-        logger.error("failed_to_project_audit_log", error=str(e), payload=payload)
+    except Exception as error:
+        logger.error("failed_to_project_audit_log", error_type=type(error).__name__, event_type=payload.get("event_type"))
+        raise

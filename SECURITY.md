@@ -20,6 +20,15 @@ These controls reduce risk but do not make the internal alpha a hardened multi-t
 service. Authorization must be enforced for background jobs as well as HTTP requests,
 and RLS must remain enabled and tested on the deployed PostgreSQL instance.
 
+The OAuth redirect carries a short-lived, single-use exchange code. The Next.js server
+redeems it and stores the application session in a host-only, HttpOnly, Secure cookie on
+the frontend origin. Browser API requests pass through a same-origin proxy with Origin
+checks on mutations. Direct WebSocket connections use short-lived, one-use tickets
+instead of session tokens. Server-side session revocation is enforced on logout.
+Legacy plaintext credentials are accepted only for recognizable GitHub and supported
+provider token formats; malformed ciphertext fails closed. Rotate or migrate any
+unsupported legacy plaintext records before relying on the stricter decoder.
+
 ## Execution and deployment expectations
 
 The Compose worker mounts the Docker daemon socket. Possession of that socket is

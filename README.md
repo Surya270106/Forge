@@ -2,7 +2,7 @@
 
 Forge is a repository-aware software engineering system that imports and indexes source repositories, builds structural code memory, turns an approved intent into an execution plan, runs that plan in a Docker sandbox, records mutations and logs, and verifies the result with a bounded repair path.
 
-The project is an internal alpha. Its architecture and security controls are implemented and tested, but Forge should not be treated as a hosted production service or used to execute untrusted repositories without reviewing the deployment, Docker daemon exposure, credentials, and network policy.
+The project is an internal alpha. Unit and mocked integration checks cover parts of its architecture and security controls; Docker, PostgreSQL RLS, hosted worker behavior, and real GitHub contribution still require environment-backed verification. Review deployment, Docker daemon exposure, credentials, and network policy before executing untrusted repositories.
 
 ## What Forge contains
 
@@ -12,7 +12,7 @@ The project is an internal alpha. Its architecture and security controls are imp
 - Repository scanning, language/framework detection, Tree-sitter parsing, symbol storage, and graph-oriented memory construction.
 - Plan approval and execution state machines with persisted logs and mutations.
 - Docker-backed command execution and verification, including network-disabled verification sandboxes.
-- GitHub OAuth, webhook handling, encrypted provider credentials, role-based permissions, and PostgreSQL row-level security migrations.
+- GitHub OAuth, signature-checked webhooks, encrypted provider credentials, role-based permissions, and PostgreSQL row-level security migrations. Webhook-triggered repository synchronization remains unimplemented.
 
 ## Lifecycle
 
@@ -31,8 +31,7 @@ flowchart LR
     Record --> Verify["Run verification checks"]
     Verify --> Result{"Checks pass?"}
     Result -->|Yes| Complete["Complete job"]
-    Result -->|No, repair allowed| Repair["Create bounded repair attempt"]
-    Repair --> Plan
+    Result -->|No, repair allowed| Repair["Prepare repair feedback for review"]
     Result -->|No repair| Failed["Fail job"]
 ```
 
@@ -40,7 +39,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    Browser["Next.js 14 / React 18"] -->|HTTP and WebSocket| API["FastAPI API"]
+    Browser["Next.js 15 / React 19"] -->|HTTP and WebSocket| API["FastAPI API"]
     API -->|SQLAlchemy / asyncpg| PostgreSQL[("PostgreSQL 16")]
     API -->|Pub/Sub logs| Redis[("Redis 7")]
     API -->|Transactional events| PostgreSQL
@@ -65,8 +64,8 @@ The repository keeps deployable applications in `apps/`, reusable infrastructure
 
 ### Frontend
 
-- Next.js 14.2.35 with the App Router.
-- React and React DOM 18.3.1.
+- Next.js 15.5.28 with the App Router.
+- React and React DOM 19.3.0.
 - TypeScript 5.9.3, Playwright, React Query, Zustand, Radix primitives, and custom CSS.
 
 ### Execution and verification
@@ -248,8 +247,8 @@ FastAPI exposes OpenAPI documentation at `/docs`. Major route groups include:
 | `/api/v1/memory/*` | Index jobs and stored symbols. |
 | `/api/v1/plans/*` | Plan creation, approval, revision, and listing. |
 | `/api/v1/executions/*` | Execution jobs, logs, and mutations. |
-| `/api/v1/verifications/*` | Verification job creation and status. |
-| `/api/v1/patches/*` | Patch generation, acceptance, rejection, and revision. |
+| `/api/v1/verifications/*` | Verification results and bounded repair proposals. |
+| `/api/v1/patches/*` | Diff review, exact-digest approval, and explicit GitHub contribution requests. |
 | `/api/v1/context/*` | Context snapshots and agent interactions. |
 | `/api/v1/workspaces/*` | Workspace membership and administration. |
 | `/api/v1/github/webhooks/` | GitHub webhook receiver. |
@@ -262,10 +261,9 @@ Protected routes use the authentication and permission dependencies in `services
 Backend:
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest tests -v
+uv run ruff check --select E,F --ignore E402,E501 apps/api apps/worker packages services tests
+uv run pytest tests -q
+uv run alembic heads
 ```
 
 Frontend:
@@ -280,6 +278,7 @@ npx playwright test
 ```
 
 Docker-dependent tests require a running Docker daemon. PostgreSQL RLS and full workflow tests may also require the services and environment variables described by their fixtures.
+CI runs the focused Ruff gate above, frontend lint/typecheck/build, Docker image builds, Compose configuration checks, and Docker-backed sandbox tests on a GitHub runner. The full Ruff ruleset and Pyright are optional broader checks and may report existing debt; passing the focused CI gate does not imply full Ruff compliance.
 The internal-alpha suites currently contain explicitly skipped backend and Playwright
 scenarios; review the test summary and report skips separately from passing coverage.
 

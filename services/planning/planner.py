@@ -1,4 +1,6 @@
 import json
+import re
+from pathlib import PurePosixPath
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +30,7 @@ You are an autonomous AI software engineer. Your task is to plan the execution o
 Intent: {intent}
 
 Output a JSON object with 'nodes' and 'edges'.
-Nodes have 'id', 'type' ('command', 'edit_file', or 'verify'), 'target' ('workspace' or file path), and 'parameters'.
+Nodes have 'id', 'type' ('command' or 'edit_file'), 'target' ('workspace' or file path), and 'parameters'.
 Edges have 'from', 'to', and 'condition' ('on_success' or 'on_failure').
 
 CRITICAL RULES:
@@ -54,52 +56,75 @@ Example JSON:
         try:
             plan_data = json.loads(interaction.response_text)
         except json.JSONDecodeError:
-            # Fallback if AI didn't return valid JSON
-            plan_data = {
-                "nodes": [{"id": "fallback", "type": "command", "target": "workspace", "parameters": {"command": "echo 'Invalid JSON from AI'"}}],
-                "edges": [],
-            }
+            raise ValueError("Model provider returned an invalid plan; retry after reviewing provider settings") from None
+        if not isinstance(plan_data, dict) or not isinstance(plan_data.get("nodes"), list) or not plan_data["nodes"]:
+            raise ValueError("Model provider returned an empty or invalid plan")
+        raw_nodes = plan_data["nodes"]
+        raw_edges = plan_data.get("edges", [])
+        if len(raw_nodes) > 50 or not isinstance(raw_edges, list) or len(raw_edges) > 100:
+            raise ValueError("Model provider returned a plan above the size limit")
 
         nodes = []
         edges = []
         node_id_map = {}
 
-        for n_data in plan_data.get("nodes", []):
+        for n_data in raw_nodes:
+            if not isinstance(n_data, dict) or not isinstance(n_data.get("id"), str) or not n_data["id"] or n_data["id"] in node_id_map:
+                raise ValueError("Model provider returned duplicate or invalid plan node IDs")
+            action = n_data.get("type")
+            target = n_data.get("target")
+            parameters = n_data.get("parameters")
+            if action not in {"command", "edit_file"} or not isinstance(target, str) or not isinstance(parameters, dict):
+                raise ValueError("Model provider returned an unsupported plan action")
+            if action == "edit_file":
+                path = PurePosixPath(target)
+                if (not re.fullmatch(r"[A-Za-z0-9_./-]{1,240}", target) or path.is_absolute()
+                    or ".." in path.parts or ".git" in path.parts or path.as_posix() != target
+                    or not isinstance(parameters.get("changes"), str)
+                    or len(parameters["changes"].encode("utf-8")) > 1024 * 1024):
+                    raise ValueError("Model provider returned an unsafe file edit")
+            else:
+                path = PurePosixPath(target)
+                if (target != "workspace" and (
+                    not re.fullmatch(r"[A-Za-z0-9_./-]{1,240}", target) or path.is_absolute()
+                    or ".." in path.parts or ".git" in path.parts or path.as_posix() != target
+                )) or not isinstance(parameters.get("command"), str) or len(parameters["command"]) > 4096:
+                    raise ValueError("Model provider returned an invalid command")
             node_id = generate_id()
-            node_id_map[n_data.get("id")] = node_id
+            node_id_map[n_data["id"]] = node_id
             nodes.append(
                 TaskNodeModel(
                     id=node_id,
                     organization_id=self.organization_id,
                     plan_id=self.plan_id,
-                    action_type=n_data.get("type", "unknown"),
-                    target=n_data.get("target", "workspace"),
-                    parameters=n_data.get("parameters", {}),
+                    action_type=action,
+                    target=target,
+                    parameters=parameters,
                 )
             )
 
         import networkx as nx
         dag = nx.DiGraph()
         
-        for e_data in plan_data.get("edges", []):
+        for e_data in raw_edges:
+            if not isinstance(e_data, dict) or e_data.get("condition") not in {"on_success", "on_failure"}:
+                raise ValueError("Model provider returned an invalid plan edge")
             from_id = node_id_map.get(e_data.get("from"))
             to_id = node_id_map.get(e_data.get("to"))
-            if from_id and to_id:
-                dag.add_edge(from_id, to_id)
-                try:
-                    nx.find_cycle(dag)
-                    # cycle found, reject this edge
-                    dag.remove_edge(from_id, to_id)
-                except nx.NetworkXNoCycle:
-                    edges.append(
-                        TaskEdgeModel(
-                            id=generate_id(),
-                            organization_id=self.organization_id,
-                            plan_id=self.plan_id,
-                            from_node_id=from_id,
-                            to_node_id=to_id,
-                            condition=e_data.get("condition", "on_success"),
-                        )
-                    )
+            if not from_id or not to_id:
+                raise ValueError("Model provider returned an edge with a missing node")
+            dag.add_edge(from_id, to_id)
+            if not nx.is_directed_acyclic_graph(dag):
+                raise ValueError("Model provider returned a cyclic plan")
+            edges.append(
+                TaskEdgeModel(
+                    id=generate_id(),
+                    organization_id=self.organization_id,
+                    plan_id=self.plan_id,
+                    from_node_id=from_id,
+                    to_node_id=to_id,
+                    condition=e_data["condition"],
+                )
+            )
 
         return nodes, edges

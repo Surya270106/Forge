@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { env } from "../../config/env";
 import { AppShell } from "../components/AppShell";
 
 type GitHubRepository = { name: string; owner: string; description?: string; clone_url: string; default_branch?: string; is_private: boolean };
@@ -16,9 +15,7 @@ export default function RepositoriesPage() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/github-repos`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}` },
-    }).then(async (response) => {
+    fetch(`/api/v1/repositories/github-repos`).then(async (response) => {
       if (response.status === 401 || response.status === 400) { router.push("/login"); return; }
       if (response.ok) { const data = await response.json(); setRepositories(data.repositories || []); }
     }).catch(console.error).finally(() => setLoading(false));
@@ -29,9 +26,9 @@ export default function RepositoriesPage() {
     if (!orgId) { window.alert("No workspace selected. Please sign in again."); return; }
     setImporting(repo.name);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/import`, {
+      const response = await fetch(`/api/v1/repositories/import`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": orgId, "Content-Type": "application/json" },
+        headers: { "X-Organization-Id": orgId, "Content-Type": "application/json" },
         body: JSON.stringify({ clone_url: repo.clone_url, owner: repo.owner, name: repo.name, branch: repo.default_branch || "main", is_private: repo.is_private }),
       });
       if (response.ok) { 

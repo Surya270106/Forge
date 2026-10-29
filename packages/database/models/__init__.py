@@ -30,6 +30,7 @@ from .memory import (
     SymbolReferenceModel,
 )
 from .outbox_event import OutboxEventModel
+from .patch import PatchModel, PatchStatus
 from .planning import (
     PlanModel,
     PlanStatus,
@@ -90,4 +91,6 @@ __all__ = [
     "UserModel",
     "RoleBindingModel",
     "AuditLogModel",
+    "PatchModel",
+    "PatchStatus",
 ]

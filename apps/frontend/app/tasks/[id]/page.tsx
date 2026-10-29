@@ -30,7 +30,20 @@ type Mutation = {
   diff_hunk: string;
 };
 
-type ActiveTab = 'plan' | 'execution';
+type Verification = { id: string; status: string; results?: {
+  verifier: string; status: string; exit_code: number | null;
+  stdout: string | null; stderr: string | null; diagnostics: { file?: string; line?: number; message?: string }[];
+}[] };
+type Repair = { id: string; status: string; attempt_number: number; repair_plan_id: string | null; error_message: string | null; feedback: string | null };
+type Patch = {
+  id: string;
+  status: string;
+  publish_status: string;
+  publish_error: string | null;
+  pull_request_url: string | null;
+};
+type PatchReview = { review_digest: string; base_commit_sha: string; changes: { path: string; diff: string }[] };
+type ActiveTab = 'plan' | 'execution' | 'review';
 
 function nodeTitle(node: PlanNode) {
   if (node.action_type === 'edit_file') return `Edit ${node.target}`;
@@ -57,15 +70,18 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const [executionStatus, setExecutionStatus] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [mutations, setMutations] = useState<Mutation[]>([]);
+  const [verification, setVerification] = useState<Verification | null>(null);
+  const [repair, setRepair] = useState<Repair | null>(null);
+  const [patch, setPatch] = useState<Patch | null>(null);
+  const [patchReview, setPatchReview] = useState<PatchReview | null>(null);
+  const [patchBusy, setPatchBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('plan');
   const [error, setError] = useState('');
 
   const authHeaders = useCallback(() => {
-    const token = localStorage.getItem('forge_token');
     const orgId = localStorage.getItem('forge_org_id');
 
     return {
-      Authorization: `Bearer ${token}`,
       'X-Organization-Id': orgId || '',
     };
   }, []);
@@ -73,12 +89,19 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const fetchPlan = useCallback(async () => {
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${id}`,
+        `/api/v1/plans/${id}`,
         { headers: authHeaders() },
       );
 
       if (!response.ok) throw new Error('The plan could not be loaded.');
       setPlan(await response.json());
+      const latest = await fetch(`/api/v1/executions/plans/${id}/latest`, { headers: authHeaders() });
+      if (latest.ok) {
+        const job = await latest.json();
+        setExecutionId(job.id);
+        setExecutionStatus(job.status);
+        setExecuting(job.status === 'PENDING' || job.status === 'RUNNING');
+      }
       setError('');
     } catch (requestError) {
       setError(
@@ -96,11 +119,11 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
       try {
         const [jobResponse, logsResponse] = await Promise.all([
           fetch(
-            `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}`,
+            `/api/v1/executions/${jobId}`,
             { headers: authHeaders() },
           ),
           fetch(
-            `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}/logs`,
+            `/api/v1/executions/${jobId}/logs`,
             { headers: authHeaders() },
           ),
         ]);
@@ -113,7 +136,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
             setExecuting(false);
 
             const mutationResponse = await fetch(
-              `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/${jobId}/mutations`,
+              `/api/v1/executions/${jobId}/mutations`,
               { headers: authHeaders() },
             );
 
@@ -127,13 +150,11 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
         if (logsResponse.ok) {
           const logPayload = await logsResponse.json();
           setLogs(
-            logPayload.map((entry: { message: string }) => entry.message),
+            logPayload.map((entry: { message: string }) => entry.message).slice(-1000),
           );
         }
       } catch {
-        setExecuting(false);
-        setExecutionStatus('FAILED');
-        setError('The execution stream was interrupted.');
+        setError('Execution status is temporarily unavailable. Forge will keep trying.');
       }
     },
     [authHeaders],
@@ -144,45 +165,155 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   }, [fetchPlan]);
 
   useEffect(() => {
+    if (executionId && !executing) void fetchExecution(executionId);
+  }, [executionId, executing, fetchExecution]);
+
+  useEffect(() => {
+    if (!executionId || executionStatus !== 'COMPLETED') return;
+    const refresh = async () => {
+      const headers = authHeaders();
+      const [verificationResponse, patchResponse] = await Promise.all([
+        fetch(`/api/v1/verifications/executions/${executionId}/latest`, { headers }),
+        fetch(`/api/v1/patches/executions/${executionId}`, { headers }),
+      ]);
+      if (verificationResponse.ok) {
+        const latestVerification: Verification = await verificationResponse.json();
+        setVerification(latestVerification);
+        if (latestVerification.status === 'FAILED') {
+          const repairResponse = await fetch(`/api/v1/verifications/${latestVerification.id}/repair`, { headers });
+          if (repairResponse.ok) setRepair(await repairResponse.json());
+        }
+      }
+      if (patchResponse.ok) setPatch(await patchResponse.json());
+    };
+    void refresh().catch(() => setError('Review status is temporarily unavailable.'));
+    const timer = window.setInterval(() => void refresh().catch(() => {}), 5000);
+    return () => window.clearInterval(timer);
+  }, [executionId, executionStatus, authHeaders]);
+
+  const loadPatchReview = async (patchId: string) => {
+    const response = await fetch(`/api/v1/patches/${patchId}/review`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('The patch review is stale or unavailable.');
+    setPatchReview(await response.json());
+  };
+
+  const preparePatch = async () => {
+    if (!executionId) return;
+    setPatchBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/v1/patches/executions/${executionId}/generate`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!response.ok) throw new Error('Forge could not prepare a reviewable patch.');
+      const prepared = await response.json();
+      setPatch(prepared);
+      await loadPatchReview(prepared.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Patch review is unavailable.');
+    } finally { setPatchBusy(false); }
+  };
+
+  const approvePatch = async () => {
+    if (!patch || !patchReview) return;
+    setPatchBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/v1/patches/${patch.id}/accept`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_digest: patchReview.review_digest }),
+      });
+      if (!response.ok) throw new Error('Approval was rejected. Refresh the patch review.');
+      setPatch(await response.json());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Patch approval failed.');
+    } finally { setPatchBusy(false); }
+  };
+
+  const publishPatch = async () => {
+    if (!patch) return;
+    setPatchBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/v1/patches/${patch.id}/publish`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!response.ok) throw new Error('Publication was not queued. Check verification and GitHub access.');
+      setPatch(await response.json());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not request publication.');
+    } finally { setPatchBusy(false); }
+  };
+
+  const updateRepair = async (action: 'plan' | 'cancel') => {
+    if (!repair) return;
+    setPatchBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/v1/verifications/repairs/${repair.id}/${action}`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!response.ok) throw new Error('The repair request could not be completed.');
+      setRepair({ ...repair, status: (await response.json()).status });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Repair request failed.');
+    } finally { setPatchBusy(false); }
+  };
+
+  useEffect(() => {
     if (!executionId || !executing) return;
 
-    fetchExecution(executionId);
-    
+    void fetchExecution(executionId);
+    const statusTimer = window.setInterval(() => void fetchExecution(executionId), 5000);
     const wsUrl = `${env.NEXT_PUBLIC_EVENT_URL}/api/v1/executions/${executionId}/ws`;
-    
-    const ws = new WebSocket(wsUrl);
-    
-    ws.onmessage = (event) => {
+    let closed = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let retries = 0;
+
+    const connect = async () => {
+      try {
+        const response = await fetch(`/api/v1/executions/${executionId}/ws-ticket`, {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        if (!response.ok) throw new Error('Live log authorization failed.');
+        const { ticket } = await response.json();
+        if (typeof ticket !== 'string') throw new Error('Invalid live log ticket.');
+        if (closed) return;
+        socket = new WebSocket(wsUrl, ['forge.v1', `forge.ticket.${ticket}`]);
+        socket.onmessage = onMessage;
+        socket.onclose = () => {
+          if (!closed && retries++ < 3) reconnectTimer = window.setTimeout(() => void connect(), 3000);
+        };
+      } catch {
+        if (!closed) setError('Live logs are unavailable. Saved logs will continue to refresh.');
+      }
+    };
+
+    const onMessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         if (data && data.message) {
           setLogs((prev) => {
-            // Avoid duplicates
             if (prev[prev.length - 1] === data.message) return prev;
-            return [...prev, data.message];
+            return [...prev, data.message].slice(-1000);
           });
-          
-          if (
-            data.message === 'Execution completed successfully.' || 
-            data.message.includes('Triggered Repository Memory') ||
-            data.message.includes('Warning: Failed to trigger Memory') ||
-            data.message.includes('Execution timed out') || 
-            data.message.includes('Command failed')
-          ) {
-            // Fetch one last time to get mutations and final status
-            // Wait 2s to ensure worker has committed the transaction
-            setTimeout(() => fetchExecution(executionId), 2000);
-          }
         }
-      } catch (e) {
-        console.error('Error parsing websocket message', e);
+      } catch {
+        setError('A live log message could not be read. Saved logs will continue to refresh.');
       }
     };
 
+    void connect();
     return () => {
-      ws.close();
+      closed = true;
+      window.clearInterval(statusTimer);
+      window.clearTimeout(reconnectTimer);
+      socket?.close();
     };
-  }, [executionId, executing, fetchExecution]);
+  }, [executionId, executing, fetchExecution, authHeaders]);
 
   const handleApprove = async () => {
     setApproving(true);
@@ -190,7 +321,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
 
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans/${id}/approve`,
+        `/api/v1/plans/${id}/approve`,
         {
           method: 'POST',
           headers: authHeaders(),
@@ -213,14 +344,14 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const handleExecute = async () => {
     setExecuting(true);
     setExecutionStatus('PENDING');
-    setLogs(['Starting the isolated execution engine...']);
+    setLogs([]);
     setMutations([]);
     setError('');
     setActiveTab('execution');
 
     try {
       const response = await fetch(
-        `${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/executions/plans/${id}`,
+        `/api/v1/executions/plans/${id}`,
         {
           method: 'POST',
           headers: {
@@ -237,7 +368,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
       setExecutionStatus(execution.status || 'PENDING');
     } catch (requestError) {
       setExecuting(false);
-      setExecutionStatus('FAILED');
+      setExecutionStatus(null);
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -324,6 +455,9 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
             <span>02</span>
             Execution stream
           </button>
+          <button type="button" className={activeTab === 'review' ? 'is-active' : ''} onClick={() => setActiveTab('review')}>
+            <span>03</span>Change review
+          </button>
         </nav>
 
         {error && <p className="form-message form-error">{error}</p>}
@@ -402,7 +536,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
               )}
             </div>
           </section>
-        ) : (
+        ) : activeTab === 'execution' ? (
           <>
             <section className="execution-console">
               <header>
@@ -433,7 +567,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                 {executing && (
                   <div className="terminal-pulse">
                     <span>--</span>
-                    <code>Processing next verified action...</code>
+                    <code>Waiting for worker updates...</code>
                   </div>
                 )}
               </div>
@@ -465,10 +599,10 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                     <span />
                     Applied mutations
                   </div>
-                  <h2>Verified changes, file by file.</h2>
+                  <h2>Applied changes, file by file.</h2>
                   <p>
-                    The execution finished successfully. Review the exact mutations
-                    produced by the approved plan.
+                    The execution finished. Review the mutations produced by the
+                    approved plan; verification results are separate.
                   </p>
                 </div>
 
@@ -497,6 +631,72 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
               </section>
             )}
           </>
+        ) : (
+          <section className="mutation-section" aria-label="Change review and GitHub contribution">
+            <div className="mutation-heading">
+              <div className="eyebrow"><span />Review evidence</div>
+              <h2>Inspect the result before publication.</h2>
+              <p>Execution, verification, approval, and GitHub publication are separate steps.</p>
+            </div>
+            <div className="mutation-list">
+              <article>
+                <header><code>Verification</code><i>{verification?.status || 'Awaiting result'}</i></header>
+                {verification?.results?.map((result) => (
+                  <details key={result.verifier}>
+                    <summary>{result.verifier}: {result.status} (exit {result.exit_code ?? 'not run'})</summary>
+                    {result.diagnostics?.map((finding, index) => (
+                      <p key={`${result.verifier}-${index}`}>{finding.file || 'Check'}{finding.line ? `:${finding.line}` : ''}: {finding.message}</p>
+                    ))}
+                    {result.stdout && <pre>{result.stdout.slice(-10000)}</pre>}
+                    {result.stderr && <pre>{result.stderr.slice(-10000)}</pre>}
+                  </details>
+                ))}
+              </article>
+              {repair && (
+                <article>
+                  <header><code>Repair attempt {repair.attempt_number} of 3</code><i>{repair.status.replaceAll('_', ' ')}</i></header>
+                  {repair.feedback && <pre>{repair.feedback}</pre>}
+                  {repair.error_message && <p role="alert">{repair.error_message}</p>}
+                  {repair.status === 'ELIGIBLE' && (
+                    <button type="button" className="button button-primary" disabled={patchBusy} onClick={() => void updateRepair('plan')}>
+                      Request bounded repair plan
+                    </button>
+                  )}
+                  {repair.repair_plan_id && <Link href={`/tasks/${repair.repair_plan_id}`}>Review repair plan →</Link>}
+                  {(repair.status === 'PLANNING' || repair.status === 'AWAITING_APPROVAL') && (
+                    <button type="button" className="button button-white" disabled={patchBusy} onClick={() => void updateRepair('cancel')}>
+                      Cancel repair proposal
+                    </button>
+                  )}
+                </article>
+              )}
+              {verification?.status === 'PASSED' && !patch && executionId && (
+                <button type="button" className="button button-primary" disabled={patchBusy} onClick={preparePatch}>
+                  Prepare change review
+                </button>
+              )}
+              {patch && (
+                <article>
+                  <header><code>Patch {patch.id.slice(0, 12)}</code><i>{patch.status}</i></header>
+                  <p>GitHub publication: {patch.publish_status.replaceAll('_', ' ')}</p>
+                  {patch.publish_error && <p role="alert">Publication failed ({patch.publish_error}). Check GitHub access or repository state, then retry.</p>}
+                  {!patchReview && <button type="button" className="button button-white" onClick={() => void loadPatchReview(patch.id).catch(() => setError('Patch review is unavailable.'))}>Load reviewed diff</button>}
+                  {patchReview?.changes.map((change) => (
+                    <div key={change.path}><code>{change.path}</code><pre>{change.diff}</pre></div>
+                  ))}
+                  {patch.status === 'GENERATED' && patchReview && (
+                    <button type="button" className="button button-primary" disabled={patchBusy} onClick={approvePatch}>Approve this exact diff</button>
+                  )}
+                  {(patch.status === 'ACCEPTED' || patch.status === 'COMMITTED') && verification?.status === 'PASSED' && (
+                    <button type="button" className="button button-primary" disabled={patchBusy || patch.publish_status === 'QUEUED' || patch.publish_status === 'RUNNING'} onClick={publishPatch}>
+                      Publish dedicated branch and open pull request
+                    </button>
+                  )}
+                  {patch.pull_request_url && <a href={patch.pull_request_url} target="_blank" rel="noopener noreferrer">Open GitHub pull request ↗</a>}
+                </article>
+              )}
+            </div>
+          </section>
         )}
       </main>
     </AppShell>

@@ -88,6 +88,7 @@ class RepairAttemptStatus(StrEnum):
     ELIGIBLE = "ELIGIBLE"
     QUEUED = "QUEUED"
     PLANNING = "PLANNING"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     EXECUTING = "EXECUTING"
     REVERIFYING = "REVERIFYING"
     SUCCEEDED = "SUCCEEDED"
@@ -109,6 +110,9 @@ class RepairAttemptModel(IdMixin, TimestampMixin, Base):
     verification_job_id: Mapped[UUID] = mapped_column(ForeignKey("verification_jobs.id"), nullable=False)
 
     repair_execution_id: Mapped[UUID | None] = mapped_column(ForeignKey("execution_jobs.id"), nullable=True)
+    repair_plan_id: Mapped[UUID | None] = mapped_column(ForeignKey("plans.id"), nullable=True, unique=True)
+    requested_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     status: Mapped[RepairAttemptStatus] = mapped_column(
         SAEnum(RepairAttemptStatus, name="repair_attempt_status"), nullable=False, default=RepairAttemptStatus.QUEUED

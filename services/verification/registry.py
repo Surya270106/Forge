@@ -51,13 +51,8 @@ class VerificationRegistry:
 
     def get_verifiers(self) -> list[VerifierDefinition]:
         if not self.config or not self.config.verification:
-            # Return some defaults if no forge.yaml is present
-            return [
-                VerifierDefinition(
-                    identifier="default-lint", display_name="Default Linter", category="lint", command=["npm", "run", "lint"], timeout=300
-                ),
-                VerifierDefinition(identifier="default-test", display_name="Default Tests", category="test", command=["npm", "test"], timeout=600),
-            ]
+            # A repository without an explicit verifier must not claim a check ran.
+            return []
 
         v = self.config.verification
         verifiers = []

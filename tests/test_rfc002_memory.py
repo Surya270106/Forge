@@ -1,9 +1,6 @@
-import pytest
-
 from services.repository_memory.parser_registry import get_default_registry
 
 
-@pytest.mark.skip(reason="tree-sitter API changes in 0.21.0 require query update")
 def test_tree_sitter_python_extraction():
     registry = get_default_registry()
     adapter = registry.get_adapter("main.py")
@@ -13,7 +10,7 @@ def test_tree_sitter_python_extraction():
 
     fixture_path = "tests/fixtures/sample_repo/main.py"
     with open(fixture_path, "rb") as f:
-        content = f.read()
+        content = b"import os\nimport sys\n" + f.read()
 
     tree = adapter.parse(content)
     symbols = adapter.extract_symbols(tree, content)

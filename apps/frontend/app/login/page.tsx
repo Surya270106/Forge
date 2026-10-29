@@ -1,25 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { env } from "../../config/env";
 
 export default function LoginPage() {
   const [connecting, setConnecting] = useState(false);
   const connect = async () => {
     setConnecting(true);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/github/login`);
+      const response = await fetch(`/api/v1/auth/github/login`);
       const data = await response.json();
       if (!data.url) throw new Error("Missing authorization URL");
-      try {
-        window.location.href = data.url;
-      } catch (e) {
-        window.open(data.url, "_blank");
-      }
-      // Fallback if location.href is silently blocked
-      setTimeout(() => {
-        window.open(data.url, "_blank");
-      }, 500);
+      window.location.assign(data.url);
     } catch (error) {
       console.error(error); window.alert("Forge could not begin GitHub authentication."); setConnecting(false);
     }

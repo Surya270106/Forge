@@ -1,9 +1,12 @@
+"""Tree-sitter adapters for repository symbols, imports, and calls."""
+
 from dataclasses import dataclass
 from typing import Any
 
-import structlog
-
-logger = structlog.get_logger(__name__)
+import tree_sitter_javascript
+import tree_sitter_python
+import tree_sitter_typescript
+from tree_sitter import Language, Parser
 
 
 @dataclass
@@ -30,26 +33,117 @@ class ExtractedCall:
 
 
 class LanguageAdapter:
+    extensions: tuple[str, ...] = ()
+    language_name = "unknown"
+    parser_version = "unknown"
+
+    def __init__(self, language: Language):
+        self.parser = Parser(language)
+
     def supports(self, file_path: str) -> bool:
-        raise NotImplementedError
+        return file_path.lower().endswith(self.extensions)
 
     def get_language_name(self) -> str:
-        raise NotImplementedError
+        return self.language_name
 
     def get_parser_version(self) -> str:
-        raise NotImplementedError
+        return self.parser_version
 
     def parse(self, content: bytes) -> Any:
-        raise NotImplementedError
+        return self.parser.parse(content)
+
+    @staticmethod
+    def _walk(root: Any):
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            yield node
+            stack.extend(reversed(node.children))
 
     def extract_symbols(self, tree: Any, content: bytes) -> list[ExtractedSymbol]:
-        raise NotImplementedError
+        symbol_types = {
+            "class_definition": "class",
+            "class_declaration": "class",
+            "function_definition": "function",
+            "function_declaration": "function",
+            "method_definition": "method",
+            "interface_declaration": "interface",
+            "type_alias_declaration": "type",
+        }
+        symbols = []
+        for node in self._walk(tree.root_node):
+            symbol_type = symbol_types.get(node.type)
+            if not symbol_type:
+                continue
+            name_node = node.child_by_field_name("name")
+            if name_node is None:
+                continue
+            name = content[name_node.start_byte : name_node.end_byte].decode("utf-8", "replace")
+            snippet = content[node.start_byte : min(node.end_byte, node.start_byte + 4000)].decode("utf-8", "replace")
+            symbols.append(ExtractedSymbol(name, name, symbol_type, node.start_point.row + 1, node.end_point.row + 1, snippet))
+        return symbols
 
     def extract_dependencies(self, tree: Any, content: bytes) -> list[ExtractedDependency]:
-        raise NotImplementedError
+        imports = []
+        for node in self._walk(tree.root_node):
+            if node.type not in {"import_statement", "import_from_statement"}:
+                continue
+            statement = content[node.start_byte : node.end_byte].decode("utf-8", "replace")
+            if self.language_name == "python":
+                external = not statement.startswith("from .")
+            else:
+                external = not any(marker in statement for marker in ('from ".', "from '.", 'import ".', "import '."))
+            imports.append(ExtractedDependency(statement, external))
+        return imports
 
     def extract_calls(self, tree: Any, content: bytes) -> list[ExtractedCall]:
-        raise NotImplementedError
+        calls = []
+        for node in self._walk(tree.root_node):
+            if node.type not in {"call", "call_expression"}:
+                continue
+            function = node.child_by_field_name("function")
+            if function is None:
+                continue
+            name_node = function.child_by_field_name("attribute") or function.child_by_field_name("property") or function
+            name = content[name_node.start_byte : name_node.end_byte].decode("utf-8", "replace")
+            snippet = content[node.start_byte : min(node.end_byte, node.start_byte + 1000)].decode("utf-8", "replace")
+            calls.append(ExtractedCall(name, snippet, node.start_point.row + 1))
+        return calls
+
+
+class PythonAdapter(LanguageAdapter):
+    extensions = (".py",)
+    language_name = "python"
+    parser_version = "0.25.0"
+
+    def __init__(self):
+        super().__init__(Language(tree_sitter_python.language()))
+
+
+class JavaScriptAdapter(LanguageAdapter):
+    extensions = (".js", ".jsx", ".mjs", ".cjs")
+    language_name = "javascript"
+    parser_version = "0.25.0"
+
+    def __init__(self):
+        super().__init__(Language(tree_sitter_javascript.language()))
+
+
+class TypeScriptAdapter(LanguageAdapter):
+    extensions = (".ts", ".mts", ".cts")
+    language_name = "typescript"
+    parser_version = "0.23.2"
+
+    def __init__(self):
+        super().__init__(Language(tree_sitter_typescript.language_typescript()))
+
+
+class TSXAdapter(TypeScriptAdapter):
+    extensions = (".tsx",)
+    language_name = "tsx"
+
+    def __init__(self):
+        LanguageAdapter.__init__(self, Language(tree_sitter_typescript.language_tsx()))
 
 
 class ParserRegistry:
@@ -60,148 +154,11 @@ class ParserRegistry:
         self.adapters.append(adapter)
 
     def get_adapter(self, file_path: str) -> LanguageAdapter | None:
-        for adapter in self.adapters:
-            if adapter.supports(file_path):
-                return adapter
-        return None
-
-
-try:
-    import tree_sitter_javascript  # type: ignore # noqa: F401
-    import tree_sitter_python  # noqa: F401
-    import tree_sitter_typescript  # type: ignore # noqa: F401
-    from tree_sitter import Language, Parser, Query, QueryCursor
-
-    # pyright: ignore
-    class PythonAdapter(LanguageAdapter):  # type: ignore
-        def __init__(self):
-            self.lang = Language(tree_sitter_python.language())
-            self.parser = Parser(self.lang)
-
-        def supports(self, file_path: str) -> bool:
-            return file_path.endswith(".py")
-
-        def get_language_name(self) -> str:
-            return "python"
-
-        def get_parser_version(self) -> str:
-            return "0.21.0"
-
-        def parse(self, content: bytes) -> Any:
-            return self.parser.parse(content)
-
-        def extract_symbols(self, tree: Any, content: bytes) -> list[ExtractedSymbol]:
-            query = Query(
-                self.lang,
-                """
-                (class_definition name: (identifier) @class.name) @class.def
-                (function_definition name: (identifier) @function.name) @function.def
-            """,
-            )
-            symbols = []
-            cursor = QueryCursor(query)
-            matches = list(cursor.matches(tree.root_node))
-            print("MATCHES EXTRACT_SYMBOLS:", matches)
-            for match in matches:
-                captures = match[1]
-                class_def = captures.get("class.def", [None])[0]
-                function_def = captures.get("function.def", [None])[0]
-                class_name = captures.get("class.name", [None])[0]
-                function_name = captures.get("function.name", [None])[0]
-
-                node = class_def or function_def
-                name_node = class_name or function_name
-
-                if node and name_node:
-                    sym_type = "class" if class_def else "function"
-                    symbols.append(
-                        ExtractedSymbol(
-                            name=content[name_node.start_byte : name_node.end_byte].decode("utf-8"),
-                            qualname=content[name_node.start_byte : name_node.end_byte].decode("utf-8"),
-                            symbol_type=sym_type,
-                            line_start=node.start_point[0] + 1,
-                            line_end=node.end_point[0] + 1,
-                            snippet=content[node.start_byte : node.end_byte].decode("utf-8"),
-                        )
-                    )
-            return symbols
-
-        def extract_dependencies(self, tree: Any, content: bytes) -> list[ExtractedDependency]:
-            query = Query(
-                self.lang,
-                """
-                (import_statement) @import
-                (import_from_statement) @import_from
-            """,
-            )
-            deps = []
-            cursor = QueryCursor(query)
-            for match in cursor.matches(tree.root_node):
-                for node_list in match[1].values():
-                    for node in node_list:
-                        deps.append(
-                            ExtractedDependency(
-                                import_statement=content[node.start_byte : node.end_byte].decode("utf-8"),
-                                is_external=True,  # Simulating external heuristic
-                            )
-                        )
-            return deps
-
-        def extract_calls(self, tree: Any, content: bytes) -> list[ExtractedCall]:
-            query = Query(
-                self.lang,
-                """
-                (call function: (identifier) @call.name) @call
-                (call function: (attribute attribute: (identifier) @call.attr)) @call
-            """,
-            )
-            calls = []
-            cursor = QueryCursor(query)
-            for match in cursor.matches(tree.root_node):
-                captures = match[1]
-                call_node = captures.get("call", [None])[0]
-                name_node = captures.get("call.name", [None])[0] or captures.get("call.attr", [None])[0]
-
-                if call_node and name_node:
-                    calls.append(
-                        ExtractedCall(
-                            callee_name=content[name_node.start_byte : name_node.end_byte].decode("utf-8"),
-                            call_snippet=content[call_node.start_byte : call_node.end_byte].decode("utf-8"),
-                            line_start=call_node.start_point[0] + 1,
-                        )
-                    )
-            return calls
-
-except ImportError as e:
-    logger.warning("tree_sitter_not_installed", error=str(e))
-
-    # Fallback mock registry if environment has no C-extensions
-    # pyright: ignore
-    class PythonAdapter(LanguageAdapter):  # type: ignore
-        def supports(self, file_path: str) -> bool:
-            return file_path.endswith(".py")
-
-        def get_language_name(self) -> str:
-            return "python"
-
-        def get_parser_version(self) -> str:
-            return "mocked-1.0"
-
-        def parse(self, content: bytes) -> Any:
-            return {"mock": True}
-
-        def extract_symbols(self, tree: Any, content: bytes) -> list[ExtractedSymbol]:
-            return []
-
-        def extract_dependencies(self, tree: Any, content: bytes) -> list[ExtractedDependency]:
-            return []
-
-        def extract_calls(self, tree: Any, content: bytes) -> list[ExtractedCall]:
-            return []
+        return next((adapter for adapter in self.adapters if adapter.supports(file_path)), None)
 
 
 def get_default_registry() -> ParserRegistry:
     registry = ParserRegistry()
-    registry.register(PythonAdapter())
-    # Add JS/TS later
+    for adapter in (PythonAdapter(), JavaScriptAdapter(), TypeScriptAdapter(), TSXAdapter()):
+        registry.register(adapter)
     return registry

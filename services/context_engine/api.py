@@ -7,20 +7,17 @@ from packages.database.engine import get_session
 from packages.database.models.context import AgentInteractionModel, ContextSnapshotModel
 from packages.shared.errors import ErrorCategory, NotFoundError
 from packages.shared.identifiers import OrganizationId
+from services.auth.dependencies import require_permission
 
 from .schemas import AgentInteractionResponse, ContextSnapshotResponse
 
 router = APIRouter(prefix="/api/v1/context", tags=["context"])
 
 
-async def get_tenant_organization_id() -> OrganizationId:
-    return OrganizationId(UUID("00000000-0000-0000-0000-000000000000"))
-
-
 @router.get("/snapshots/{snapshot_id}", response_model=ContextSnapshotResponse)
 async def get_snapshot(
     snapshot_id: UUID,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    organization_id: OrganizationId = Depends(require_permission("repo:read")),
     session: AsyncSession = Depends(get_session),
 ):
     snapshot = await session.get(ContextSnapshotModel, snapshot_id)
@@ -32,7 +29,7 @@ async def get_snapshot(
 @router.get("/interactions/{interaction_id}", response_model=AgentInteractionResponse)
 async def get_interaction(
     interaction_id: UUID,
-    organization_id: OrganizationId = Depends(get_tenant_organization_id),
+    organization_id: OrganizationId = Depends(require_permission("repo:read")),
     session: AsyncSession = Depends(get_session),
 ):
     interaction = await session.get(AgentInteractionModel, interaction_id)

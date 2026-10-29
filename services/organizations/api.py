@@ -2,9 +2,9 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session

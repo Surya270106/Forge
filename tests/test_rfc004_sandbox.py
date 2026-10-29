@@ -31,6 +31,22 @@ async def test_sandbox_path_validation(workspace_root):
     with pytest.raises(PermissionError):
         await sandbox.read_file("../escape.txt")
 
+    with pytest.raises(PermissionError):
+        await sandbox.write_file("../forge_test_workspace-neighbor/escape.txt", b"hacked")
+
+    with pytest.raises(PermissionError):
+        await sandbox.write_file(os.path.join(workspace_root, "absolute.txt"), b"hacked")
+
+    outside = os.path.join(os.path.dirname(workspace_root), "outside")
+    os.makedirs(outside, exist_ok=True)
+    try:
+        os.symlink(outside, os.path.join(workspace_root, "link"), target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pass
+    else:
+        with pytest.raises(PermissionError):
+            await sandbox.write_file("link/escape.txt", b"hacked")
+
 
 @pytest.mark.asyncio
 async def test_sandbox_command_execution(workspace_root):

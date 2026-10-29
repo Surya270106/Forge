@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from packages.database.models.memory import RepositoryMemoryVersionModel
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel
+from packages.database.models.verification import RepairAttemptModel, RepairAttemptStatus
 from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
 
@@ -27,7 +28,17 @@ class PlanningService:
         self.organization_id = organization_id
         self.publisher = PlanningEventPublisher(session)
 
-    async def create_plan(self, repository_id: UUID, intent: str, memory_version_id: UUID | None = None) -> PlanModel:
+    async def create_plan(
+        self,
+        repository_id: UUID,
+        intent: str,
+        memory_version_id: UUID | None = None,
+        *,
+        plan_id: UUID | None = None,
+        parent_plan_id: UUID | None = None,
+        feedback: str | None = None,
+        allowed_edit_paths: set[str] | None = None,
+    ) -> PlanModel:
         repo = await self.session.get(RepositoryModel, repository_id)
         if not repo or repo.organization_id != self.organization_id:
             raise NotFoundError(code="repo_not_found", message="Repository not found", category=ErrorCategory.NOT_FOUND)
@@ -52,13 +63,15 @@ class PlanningService:
 
         # 1. Draft the Plan
         plan = PlanModel(
-            id=generate_id(),
+            id=plan_id or generate_id(),
             organization_id=self.organization_id,
             repository_id=repository_id,
             memory_version_id=memory_version_id,
             status=PlanStatus.DRAFT,
             intent=intent,
             context_snapshot={},
+            parent_plan_id=parent_plan_id,
+            feedback=feedback,
         )
         self.session.add(plan)
         await self.session.flush()
@@ -68,6 +81,14 @@ class PlanningService:
 
         planner = AIPlanner(self.session, self.organization_id, plan.id)
         nodes, edges = await planner.build_plan(repository_id, intent)
+        if allowed_edit_paths is not None and (
+            not nodes or any(node.action_type != "edit_file" or node.target not in allowed_edit_paths for node in nodes)
+        ):
+            raise ConflictError(
+                code="repair_scope_invalid",
+                message="Repair proposal edits files outside the failed change or runs commands",
+                category=ErrorCategory.CONFLICT,
+            )
         self.session.add_all(nodes)
         await self.session.flush()
         self.session.add_all(edges)
@@ -101,6 +122,16 @@ class PlanningService:
                 message=f"Cannot approve plan in state {plan.status.value}",
                 category=ErrorCategory.CONFLICT,
             )
+        linked_repair = (
+            await self.session.execute(
+                select(RepairAttemptModel).where(
+                    RepairAttemptModel.repair_plan_id == plan_id,
+                    RepairAttemptModel.organization_id == self.organization_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if linked_repair and linked_repair.status != RepairAttemptStatus.AWAITING_APPROVAL:
+            raise ConflictError("repair_not_reviewable", "Repair proposal is no longer awaiting approval", ErrorCategory.CONFLICT)
 
         plan.status = PlanStatus.APPROVED
         await self.publisher.publish(create_plan_approved_event(self.organization_id, plan.repository_id, plan.id))

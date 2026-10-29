@@ -174,7 +174,7 @@ class EventWorker:
                 # Check idempotency
                 stmt = select(ProcessedEventModel).where(
                     ProcessedEventModel.organization_id == org_id_str,
-                    ProcessedEventModel.consumer_name == self.consumer_name,
+                    ProcessedEventModel.consumer_name == self.consumer_group,
                     ProcessedEventModel.event_id == event_id,
                 )
                 result = await session.execute(stmt)
@@ -188,10 +188,7 @@ class EventWorker:
                     data["payload"] = json.loads(data["payload"])
 
                 for g_handler in self.global_handlers:
-                    try:
-                        await g_handler(data, session)
-                    except Exception as ge:
-                        logger.error("Global handler failed", event_type=event_type, error=str(ge))
+                    await g_handler(data, session)
 
                 if handler:
                     await handler(data, session)
@@ -199,7 +196,7 @@ class EventWorker:
                 # Mark processed for idempotency
                 processed = ProcessedEventModel(
                     organization_id=org_id_str,
-                    consumer_name=self.consumer_name,
+                    consumer_name=self.consumer_group,
                     event_id=event_id,
                     processed_at=datetime.now(UTC),
                     result="success",

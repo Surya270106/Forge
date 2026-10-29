@@ -1,13 +1,17 @@
 import difflib
 import os
 
+from .sandbox import _workspace_path
+
 
 class PatchEngine:
     def __init__(self, workspace_root: str):
         self.workspace_root = workspace_root
 
     def _get_abs_path(self, relative_path: str) -> str:
-        return os.path.abspath(os.path.join(self.workspace_root, relative_path))
+        if ".git" in relative_path.replace("\\", "/").split("/"):
+            raise PermissionError("Git metadata cannot be modified by a patch")
+        return str(_workspace_path(self.workspace_root, relative_path))
 
     def apply_patch(self, file_path: str, new_content: str) -> str:
         """

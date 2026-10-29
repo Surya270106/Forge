@@ -2,7 +2,7 @@ import math
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,8 @@ async def list_organization_audit_logs(
     tenant=Depends(require_permission("workspace:settings:read")),
     session: AsyncSession = Depends(get_session),
 ):
+    if organization_id != tenant:
+        raise HTTPException(status_code=404, detail="Audit logs not found")
     stmt = select(AuditLogModel).where(AuditLogModel.organization_id == organization_id)
 
     if action:
@@ -84,7 +86,10 @@ async def list_repository_audit_logs(
     tenant=Depends(require_permission("repo:read")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = select(AuditLogModel).where(AuditLogModel.repository_id == repository_id)
+    stmt = select(AuditLogModel).where(
+        AuditLogModel.repository_id == repository_id,
+        AuditLogModel.organization_id == tenant,
+    )
 
     if action:
         stmt = stmt.where(AuditLogModel.action == action)

@@ -1,5 +1,7 @@
 import hashlib
 import os
+import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -29,9 +31,24 @@ from .events import (
     create_indexing_started_event,
     create_version_created_event,
 )
-from .parser_registry import get_default_registry
+from .parser_registry import ExtractedSymbol, LanguageAdapter, get_default_registry
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ParsedFile:
+    rel_path: str
+    adapter: LanguageAdapter
+    content: bytes
+    checksum: str
+    symbols: list[ExtractedSymbol]
+
+
+@dataclass(frozen=True)
+class ParseFailure:
+    rel_path: str
+    error: str
 
 
 class MemoryService:
@@ -95,8 +112,12 @@ class IndexingCoordinator:
         self.settings = settings or get_settings()
 
     async def execute_job(self, job_id: UUID) -> None:
-        job = await self.session.get(IndexingJobModel, job_id)
-        if not job:
+        job = (
+            await self.session.execute(
+                select(IndexingJobModel).where(IndexingJobModel.id == job_id).with_for_update().execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if not job or job.status not in (IndexingStatus.PENDING, IndexingStatus.QUEUED):
             return
 
         publisher = OutboxEventPublisher(self.session)
@@ -109,6 +130,18 @@ class IndexingCoordinator:
             await self.session.commit()
 
             workspace_dir = os.path.join(self.settings.workspace_root, str(job.organization_id), str(job.repository_id))
+            if not os.path.isdir(workspace_dir):
+                raise FileNotFoundError("Repository workspace is unavailable for indexing")
+            revision = subprocess.run(
+                ["git", "-C", workspace_dir, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10, check=True,
+            ).stdout.strip()
+            if len(revision) != 40:
+                raise ValueError("Repository HEAD is not a valid commit SHA")
+            job.commit_sha = revision
+            repo = await self.session.get(RepositoryModel, job.repository_id)
+            if repo and repo.organization_id == job.organization_id and not repo.commit_sha:
+                repo.commit_sha = revision
 
             # Determine previous version
             stmt = (
@@ -134,16 +167,15 @@ class IndexingCoordinator:
             job.status = IndexingStatus.PARSING
             await self.session.commit()
 
-            # Mock File Scanning
-            # In a real impl, we'd walk the workspace_dir
             files_to_parse = []
-            if os.path.exists(workspace_dir):
-                for root, _, files in os.walk(workspace_dir):
-                    for file in files:
-                        files_to_parse.append(os.path.join(root, file))
-            else:
-                # Dry-run fixture file if workspace doesn't exist (since we can't run git clone locally)
-                files_to_parse = ["test.py"]
+            for root, dirs, files in os.walk(workspace_dir):
+                dirs[:] = [directory for directory in dirs if directory not in {".git", "node_modules", ".venv", "dist", "build"} and not os.path.islink(os.path.join(root, directory))]
+                for file in files:
+                    path = os.path.join(root, file)
+                    if os.path.islink(path) or os.path.getsize(path) > 1024 * 1024:
+                        continue
+                    if self.registry.get_adapter(os.path.relpath(path, workspace_dir)):
+                        files_to_parse.append(path)
 
             job.total_files = len(files_to_parse)
             job.files_processed = 0
@@ -152,16 +184,14 @@ class IndexingCoordinator:
             import asyncio
             from concurrent.futures import ThreadPoolExecutor
             
-            def parse_file(file_path):
-                rel_path = os.path.relpath(file_path, workspace_dir) if os.path.exists(workspace_dir) else file_path
+            def parse_file(file_path: str) -> ParsedFile | ParseFailure | None:
+                rel_path = os.path.relpath(file_path, workspace_dir)
                 adapter = self.registry.get_adapter(rel_path)
                 if not adapter:
                     return None
                     
-                content = b"class MockClass:\n    pass\n"  # Mock content for local dev missing real workspace
-                if os.path.exists(file_path):
-                    with open(file_path, "rb") as f:
-                        content = f.read()
+                with open(file_path, "rb") as f:
+                    content = f.read()
 
                 checksum = hashlib.sha256(content).hexdigest()
                 
@@ -170,21 +200,12 @@ class IndexingCoordinator:
                     symbols = adapter.extract_symbols(tree, content)
                     adapter.extract_dependencies(tree, content)
                     adapter.extract_calls(tree, content)
-                    return {
-                        "rel_path": rel_path,
-                        "adapter": adapter,
-                        "content": content,
-                        "checksum": checksum,
-                        "symbols": symbols,
-                        "error": None
-                    }
+                    return ParsedFile(rel_path, adapter, content, checksum, symbols)
                 except Exception as parse_err:
-                    return {
-                        "rel_path": rel_path,
-                        "error": str(parse_err)
-                    }
+                    return ParseFailure(rel_path, str(parse_err))
 
             chunk_size = 10
+            failure_count = 0
             for i in range(0, len(files_to_parse), chunk_size):
                 chunk = files_to_parse[i:i+chunk_size]
                 
@@ -198,9 +219,10 @@ class IndexingCoordinator:
                     if not result:
                         continue
                         
-                    rel_path = result["rel_path"]
+                    rel_path = result.rel_path
                     
-                    if result["error"]:
+                    if isinstance(result, ParseFailure):
+                        failure_count += 1
                         self.session.add(
                             IndexingFailureModel(
                                 id=generate_id(),
@@ -208,14 +230,14 @@ class IndexingCoordinator:
                                 repository_id=job.repository_id,
                                 indexing_job_id=job.id,
                                 file_path=rel_path,
-                                error_message=result["error"],
+                                error_message=result.error,
                             )
                         )
                         continue
                         
-                    content = result["content"]
-                    adapter = result["adapter"]
-                    symbols = result["symbols"]
+                    content = result.content
+                    adapter = result.adapter
+                    symbols = result.symbols
                     
                     source_file = SourceFileModel(
                         id=generate_id(),
@@ -223,7 +245,7 @@ class IndexingCoordinator:
                         repository_id=job.repository_id,
                         memory_version_id=new_version.id,
                         file_path=rel_path,
-                        checksum=result["checksum"],
+                        checksum=result.checksum,
                         language=adapter.get_language_name(),
                         size_bytes=len(content),
                         lines=content.count(b"\n") + 1,
@@ -253,18 +275,21 @@ class IndexingCoordinator:
                 # Commit progress every chunk
                 await self.session.commit()
 
-            job.status = IndexingStatus.COMPLETED
+            job.status = IndexingStatus.FAILED if failure_count else IndexingStatus.COMPLETED
             job.finished_at = datetime.now(UTC)
-            new_version.is_active = True
+            new_version.is_active = failure_count == 0
 
             # Deactivate old version
-            if prev_version:
+            if prev_version and failure_count == 0:
                 prev_version.is_active = False
 
-            await publisher.publish(create_version_created_event(job.organization_id, job.repository_id, new_version.id, new_version.version))
-            await publisher.publish(create_indexing_completed_event(job.organization_id, job.repository_id, job.id, new_version.id))
+            if failure_count:
+                await publisher.publish(create_indexing_failed_event(job.organization_id, job.repository_id, job.id, f"{failure_count} source files could not be parsed"))
+            else:
+                await publisher.publish(create_version_created_event(job.organization_id, job.repository_id, new_version.id, new_version.version))
+                await publisher.publish(create_indexing_completed_event(job.organization_id, job.repository_id, job.id, new_version.id))
             await self.session.commit()
-            logger.info("indexing_completed")
+            logger.info("indexing_failed" if failure_count else "indexing_completed", parse_failures=failure_count)
 
         except Exception as e:
             logger.error("indexing_failed", error=str(e))

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { env } from "../../../config/env";
 import { AppShell } from "../../components/AppShell";
 
 type Workspace = { id: string; name: string; role: string };
@@ -14,7 +13,7 @@ export default function WorkspacesPage() {
   const [creating, setCreating] = useState(false);
   const fetchWorkspaces = async () => {
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/workspaces`, { headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}` } });
+      const response = await fetch(`/api/v1/auth/workspaces`);
       if (response.ok) { const data = await response.json(); setWorkspaces(data.workspaces || []); }
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -22,7 +21,7 @@ export default function WorkspacesPage() {
   const create = async () => {
     if (!name.trim()) return; setCreating(true);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/workspaces`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const response = await fetch(`/api/v1/workspaces`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
       if (!response.ok) throw new Error("Create failed");
       setName(""); await fetchWorkspaces();
     } catch (error) { console.error(error); window.alert("The workspace could not be created."); } finally { setCreating(false); }

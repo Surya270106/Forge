@@ -20,7 +20,7 @@ class RepositoryStatus(enum.StrEnum):
 class RepositoryModel(IdMixin, TimestampMixin, Base):
     __tablename__ = "repositories"
     __table_args__ = (
-        Index("ix_repositories_owner_name", "owner", "name", unique=True),
+        Index("ix_repositories_owner_name", "organization_id", "owner", "name", unique=True),
         Index("ix_repositories_status", "status"),
         Index("ix_repositories_org", "organization_id"),
     )

@@ -9,6 +9,7 @@ from services.patch.api import router as patch_router
 from services.planning.api import router as planning_router
 from services.repository_import.api import router as repo_router
 from services.repository_memory.api import router as memory_router
+from services.verification.api import router as verification_router
 from services.organizations.api import router as organizations_router
 
 app = FastAPI(
@@ -51,6 +52,7 @@ app.include_router(repo_router)
 app.include_router(memory_router)
 app.include_router(planning_router)
 app.include_router(execution_router)
+app.include_router(verification_router)
 app.include_router(context_router)
 app.include_router(patch_router)
 app.include_router(audit_router)
@@ -103,8 +105,8 @@ async def readiness_check():
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
         status_info["checks"]["database"] = "ok"
-    except Exception as e:
-        status_info["checks"]["database"] = f"failed: {e}"
+    except Exception:
+        status_info["checks"]["database"] = "unavailable"
         raise HTTPException(status_code=503, detail=status_info)
 
     try:
@@ -112,8 +114,8 @@ async def readiness_check():
         await redis_client.ping()
         await redis_client.aclose()
         status_info["checks"]["redis"] = "ok"
-    except Exception as e:
-        status_info["checks"]["redis"] = f"failed: {e}"
+    except Exception:
+        status_info["checks"]["redis"] = "unavailable"
         raise HTTPException(status_code=503, detail=status_info)
 
     return status_info

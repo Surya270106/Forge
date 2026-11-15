@@ -34,7 +34,7 @@ class PatchModel(IdMixin, TimestampMixin, Base):
 
     # The execution that generated this patch
     execution_job_id: Mapped[UUID] = mapped_column(ForeignKey("execution_jobs.id"), nullable=False)
-    task_id: Mapped[UUID | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    task_id: Mapped[UUID | None] = mapped_column(ForeignKey("task_nodes.id"), nullable=True)
 
     status: Mapped[PatchStatus] = mapped_column(
         SAEnum(PatchStatus, name="patch_status"),
@@ -51,7 +51,12 @@ class PatchModel(IdMixin, TimestampMixin, Base):
     pull_request_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     pull_request_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    branch_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    base_commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    review_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    publish_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_REQUESTED")
+    publish_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # When it was reviewed
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -76,6 +76,7 @@ services:
       migration:
         condition: service_completed_successfully
     environment:
+      WORKSPACE_ROOT: /srv/forge/workspaces
       DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -87,6 +88,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/forge/workspaces:/srv/forge/workspaces
     group_add:
       - "${DOCKER_GID:-0}"
     restart: unless-stopped

@@ -1,11 +1,13 @@
+from datetime import UTC, datetime
+from secrets import compare_digest
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, Request
-from sqlalchemy import select
+from fastapi import Depends, Header, HTTPException, Request, WebSocket
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.engine import get_session
-from packages.database.models.auth import RoleBindingModel, UserModel
+from packages.database.models.auth import RoleBindingModel, SessionModel, UserModel
 from packages.shared.identifiers import OrganizationId
 from services.auth.jwt import decode_access_token
 
@@ -21,29 +23,32 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        email = payload.get("email")
-        session_id = payload.get("session_id")
-        
-        if not user_id or not email:
-            raise HTTPException(status_code=401, detail="Invalid token payload")
+    return await authenticate_access_token(token, session)
 
-        # Validate server-side session if present in token
-        if session_id:
-            from packages.database.models.auth import SessionModel
-            from datetime import datetime, timezone
-            stmt = select(SessionModel).where(SessionModel.id == session_id)
-            result = await session.execute(stmt)
-            db_session = result.scalar_one_or_none()
-            if not db_session or not db_session.is_active:
-                raise HTTPException(status_code=401, detail="Session revoked")
-            if db_session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
-                raise HTTPException(status_code=401, detail="Session expired")
-            
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def authenticate_access_token(token: str, session: AsyncSession) -> dict:
+    """Validate a signed token against its active server-side session."""
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    try:
+        user_id = UUID(payload["sub"])
+        session_id = UUID(payload["session_id"])
+        session_token = payload["session_token"]
+        if not isinstance(session_token, str) or not session_token:
+            raise ValueError("Missing session token")
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token payload") from None
+
+    stmt = select(SessionModel).where(SessionModel.id == session_id)
+    db_session = (await session.execute(stmt)).scalar_one_or_none()
+    if not db_session or not db_session.is_active or db_session.user_id != user_id:
+        raise HTTPException(status_code=401, detail="Session revoked")
+    if not compare_digest(db_session.session_token, session_token):
+        raise HTTPException(status_code=401, detail="Invalid session")
+    if db_session.expires_at < datetime.now(UTC).replace(tzinfo=None):
+        raise HTTPException(status_code=401, detail="Session expired")
 
     stmt = select(UserModel).where(UserModel.id == user_id)
     result = await session.execute(stmt)
@@ -52,10 +57,21 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
 
-    from packages.shared.crypto import CryptoService
-    decrypted_github_token = CryptoService.decrypt(user.github_token) if user.github_token else None
+    return {"id": str(user.id), "email": user.email, "name": user.name,
+            "session_token": session_token}
 
-    return {"id": str(user.id), "email": user.email, "name": user.name, "github_token": decrypted_github_token}
+
+async def require_github_token(user: dict, session: AsyncSession) -> str:
+    """Read a GitHub credential only for an operation that actually needs it."""
+    from packages.shared.crypto import CryptoService
+
+    db_user = await session.get(UserModel, UUID(user["id"]))
+    if not db_user or not db_user.github_token:
+        raise HTTPException(status_code=401, detail="Reconnect GitHub to continue")
+    try:
+        return CryptoService.decrypt(db_user.github_token)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Reconnect GitHub to continue") from None
 
 
 async def get_tenant_context(
@@ -79,7 +95,7 @@ def require_permission(action: str):
     return permission_checker
 
 async def _verify_and_set_tenant(
-    request: Request,
+    request: Request | WebSocket | None,
     x_organization_id: str | None,
     user: dict,
     session: AsyncSession,
@@ -93,9 +109,13 @@ async def _verify_and_set_tenant(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid X-Organization-Id format")
 
-    from packages.database.tenant import set_system_context, set_tenant
-    
-    set_system_context()
+    from packages.database.tenant import set_tenant
+
+    set_tenant(org_uuid)
+    # Authentication queries may already have opened this transaction, so the
+    # after_begin hook alone cannot set the PostgreSQL RLS value here.
+    await session.execute(text("SELECT set_config('forge.organization_id', :organization_id, true)"),
+                          {"organization_id": str(org_uuid)})
     stmt = select(RoleBindingModel).where(RoleBindingModel.organization_id == org_uuid, RoleBindingModel.user_id == user["id"])
     result = await session.execute(stmt)
     binding = result.scalar_one_or_none()
@@ -108,7 +128,6 @@ async def _verify_and_set_tenant(
         if not has_permission(binding.role, action):
             raise HTTPException(status_code=403, detail=f"Forbidden: Missing permission '{action}'")
 
-    from packages.database.tenant import set_tenant
     org_id = OrganizationId(org_uuid)
     set_tenant(org_id)
     return org_id

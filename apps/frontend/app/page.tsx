@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { env } from "../config/env";
 import { AppShell } from "./components/AppShell";
 
 type Repository = { id: string; name: string; owner: string; status: string; default_branch: string };
@@ -16,9 +15,8 @@ export default function DashboardPage() {
   useEffect(() => {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 5000);
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/imported`, {
+    fetch(`/api/v1/repositories/imported`, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("forge_token")}`,
         "X-Organization-Id": localStorage.getItem("forge_org_id") || "",
       },
       signal: controller.signal,

@@ -28,9 +28,9 @@ class ExecutionEventPublisher(EventPublisher):
         await self.session.flush()
 
 
-def create_execution_started_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
+def _execution_event(event_type: str, org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
     return EventEnvelope(
-        event_type="execution.started",
+        event_type=event_type,
         aggregate_type="execution",
         aggregate_id=str(exec_id),
         organization_id=str(org_id),
@@ -40,6 +40,14 @@ def create_execution_started_event(org_id: UUID, repo_id: UUID, exec_id: UUID, p
             "plan_id": str(plan_id),
         },
     )
+
+
+def create_execution_requested_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
+    return _execution_event("execution.requested", org_id, repo_id, exec_id, plan_id)
+
+
+def create_execution_started_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
+    return _execution_event("execution.started", org_id, repo_id, exec_id, plan_id)
 
 
 def create_execution_completed_event(org_id: UUID, repo_id: UUID, exec_id: UUID) -> EventEnvelope:

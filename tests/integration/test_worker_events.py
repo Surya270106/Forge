@@ -17,7 +17,7 @@ BASE_URL = "http://127.0.0.1:8000"
 
 async def mock_execution_handler(event_data, session):
     # This handler mimics what the real system should do:
-    # take the execution.started event and run the job.
+    # take the execution.requested event and run the job.
     job_id = UUID(event_data["aggregate_id"])
     settings = get_settings()
     sandbox = LocalProcessSandbox(workspace_root=settings.workspace_root)
@@ -52,7 +52,7 @@ async def event_infrastructure(redis_client, db_session_maker):
         streams=["forge:events:execution"],
     )
 
-    worker.register_handler("execution.started", mock_execution_handler)
+    worker.register_handler("execution.requested", mock_execution_handler)
 
     await relay.start()
     await worker.start()
@@ -91,7 +91,7 @@ async def test_worker_events_end_to_end(redis_client, session_maker, mock_sandbo
         # Step 3: Approve plan
         await client.post(f"/api/v1/plans/{plan_id}/approve")
 
-        # Step 4: Trigger Execution - generates execution.started outbox event
+        # Step 4: Trigger Execution - generates execution.requested outbox event
         exec_resp = await client.post(f"/api/v1/executions/plans/{plan_id}", json={})
         assert exec_resp.status_code == 200
         job_id = exec_resp.json()["id"]

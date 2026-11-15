@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { env } from "../../../config/env";
 import { AppShell } from "../../components/AppShell";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -73,8 +72,8 @@ export default function ProviderSettingsPage() {
   const [success, setSuccess] = useState(false);
   
   useEffect(() => {
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/workspaces/current/provider`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": localStorage.getItem("forge_org_id") || "" },
+    fetch(`/api/v1/auth/workspaces/current/provider`, {
+      headers: { "X-Organization-Id": localStorage.getItem("forge_org_id") || "" },
     }).then(async (response) => {
       if (!response.ok) return;
       const data = await response.json();
@@ -85,9 +84,9 @@ export default function ProviderSettingsPage() {
   const save = async () => {
     setSaving(true); setSuccess(false);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/workspaces/current/provider`, {
+      const response = await fetch(`/api/v1/auth/workspaces/current/provider`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": localStorage.getItem("forge_org_id") || "", "Content-Type": "application/json" },
+        headers: { "X-Organization-Id": localStorage.getItem("forge_org_id") || "", "Content-Type": "application/json" },
         body: JSON.stringify({ provider, api_key: apiKey, model }),
       });
       if (!response.ok) throw new Error("Save failed");

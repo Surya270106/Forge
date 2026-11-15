@@ -1,0 +1,150 @@
+name: Forge CI
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - run: uv sync --locked --extra dev
+      - run: uv run --no-sync ruff check --select E,F --ignore E402,E501 apps/api apps/worker packages services migrations tests
+      - run: uv run --no-sync pytest tests -q --ignore=tests/security/test_rls.py --ignore=tests/integration/test_import_replay.py
+      - run: uv run --no-sync alembic heads
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  docker-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: docker compose config --quiet
+      - run: docker build -f docker/Dockerfile.api -t forge-api:ci .
+      - run: docker build -f docker/Dockerfile.worker -t forge-worker:ci .
+
+  docker-sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - run: uv sync --locked --extra dev
+      - run: docker info
+      - run: uv run --no-sync pytest -q tests/integration/test_docker_sandbox.py tests/security/test_docker_sandbox_security.py
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: forge_ci_test
+          POSTGRES_DB: forge_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d forge_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:forge_ci_test@localhost:5432/forge_ci
+      FORGE_RLS_TEST_DATABASE_URL: postgresql+asyncpg://postgres:forge_ci_test@localhost:5432/forge_ci
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - run: uv sync --locked --extra dev
+      - run: uv run --no-sync alembic upgrade head
+      - run: uv run --no-sync pytest -q tests/security/test_rls.py tests/integration/test_import_replay.py
+
+  worker-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: forge_e2e_test
+          POSTGRES_DB: forge_e2e_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d forge_e2e_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:forge_e2e_test@127.0.0.1:5432/forge_e2e_ci
+      REDIS_URL: redis://127.0.0.1:6379/15
+      FORGE_REQUIRE_WORKER_E2E: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - run: uv sync --locked --extra dev
+      - run: uv run --no-sync alembic upgrade head
+      - run: docker info
+      - run: docker pull node:20-slim
+      - run: docker pull python:3.12-slim
+      - run: uv run --no-sync pytest -q tests/integration/test_worker_e2e.py

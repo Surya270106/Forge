@@ -1,12 +1,9 @@
-import hmac
 import hashlib
-from fastapi import APIRouter, Header, Request, HTTPException, Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-import structlog
+import hmac
 
-from packages.database.engine import get_session
-from packages.database.models.repository import RepositoryModel
+import structlog
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+
 from packages.shared.config import get_settings
 
 router = APIRouter(prefix="/api/v1/github/webhooks", tags=["GitHub Webhooks"])
@@ -16,20 +13,16 @@ async def verify_signature(request: Request, x_hub_signature_256: str = Header(N
     settings = get_settings()
     secret = settings.github_webhook_secret
     if not secret:
-        # If no secret is configured, we can't verify securely, but we might allow it for dev.
-        # For production, we must require it.
-        if settings.environment == "production":
-            raise HTTPException(status_code=500, detail="Webhook secret not configured in production")
-        return True
-        
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+
     if not x_hub_signature_256:
         raise HTTPException(status_code=401, detail="Missing signature")
-        
+
     payload = await request.body()
     expected_signature = "sha256=" + hmac.new(
         secret.encode(), payload, hashlib.sha256
     ).hexdigest()
-    
+
     if not hmac.compare_digest(expected_signature, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid signature")
     return True
@@ -38,39 +31,25 @@ async def verify_signature(request: Request, x_hub_signature_256: str = Header(N
 async def handle_github_webhook(
     request: Request,
     x_github_event: str = Header(...),
-    session: AsyncSession = Depends(get_session),
     _verified: bool = Depends(verify_signature)
 ):
     payload = await request.json()
-    
+
     if x_github_event == "push":
         repository_data = payload.get("repository", {})
         clone_url = repository_data.get("clone_url")
         default_branch = repository_data.get("default_branch")
         ref = payload.get("ref")
-        
+
         if not clone_url or ref != f"refs/heads/{default_branch}":
             return {"status": "ignored", "reason": "not default branch or missing repo info"}
-            
-        stmt = select(RepositoryModel).where(RepositoryModel.clone_url == clone_url)
-        result = await session.execute(stmt)
-        repos = result.scalars().all()
-        
-        if not repos:
-            return {"status": "ignored", "reason": "repository not tracked in forge"}
-            
-        for repo in repos:
-            logger.info("github_webhook_push", repo_id=str(repo.id))
-            # In a real system, we'd enqueue a sync/update job here via redis stream
-            # For now, we'll just log it.
-            # Example: 
-            # from packages.shared.events import EventPublisher
-            # await publisher.publish(RepositoryUpdatedEvent(repository_id=repo.id))
-            pass
-            
-        return {"status": "success", "triggered_repos": [str(r.id) for r in repos]}
-        
+
+        # Synchronization is not implemented. Avoid a cross-tenant repository
+        # lookup under forced RLS for an event that schedules no work.
+        logger.info("github_webhook_push_not_scheduled")
+        return {"status": "not_scheduled", "reason": "Repository synchronization is not implemented"}
+
     elif x_github_event == "ping":
         return {"status": "pong"}
-        
+
     return {"status": "ignored", "reason": f"unhandled event type: {x_github_event}"}

@@ -12,6 +12,7 @@ from packages.database.models.context import (
     PromptTemplateModel,
 )
 from packages.database.models.memory import SymbolModel
+from packages.shared.errors import ConflictError, ErrorCategory
 from packages.shared.identifiers import generate_id
 
 from .events import (
@@ -121,8 +122,9 @@ class AgentOrchestrator:
         await self.publisher.publish(create_context_assembled_event(self.organization_id, repository_id, snapshot.id, plan_id))
 
         # 5. Invoke LLM (Real Implementation using LiteLLM)
-        from litellm import acompletion
-        from litellm.exceptions import APIError, APIConnectionError, RateLimitError
+        from litellm import ModelResponse, acompletion
+        from litellm.exceptions import APIConnectionError, APIError, RateLimitError
+
         from packages.database.models.auth import OrganizationModel
         from packages.shared.crypto import CryptoService
 
@@ -150,10 +152,7 @@ class AgentOrchestrator:
         tool_calls = []
 
         if not api_key:
-            # Fallback to mock for local testing without key
-            response_text = (
-                '{"nodes": [{"id": "install", "type": "command", "target": "workspace", "parameters": {"command": "echo mock"}}], "edges": []}'
-            )
+            raise ConflictError("provider_not_configured", "Configure a model provider before creating a plan", ErrorCategory.CONFLICT)
         else:
             try:
                 # Set the API key dynamically for this request
@@ -165,11 +164,13 @@ class AgentOrchestrator:
                     api_key=api_key,
                     response_format={"type": "json_object"} if "openai" in provider or "groq" in provider else None,
                 )
-                response_text = response.choices[0].message.content or ""
             except (APIError, APIConnectionError, RateLimitError) as e:
                 raise Exception(f"LLM API Error: {str(e)}")
             except Exception as e:
                 raise Exception(f"Unexpected error calling litellm: {str(e)}")
+            if not isinstance(response, ModelResponse) or not response.choices:
+                raise ConflictError("provider_invalid_response", "Model provider returned an invalid response", ErrorCategory.CONFLICT)
+            response_text = response.choices[0].message.content or ""
 
         # 6. Save Interaction
         interaction = AgentInteractionModel(

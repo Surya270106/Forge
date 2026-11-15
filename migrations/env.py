@@ -7,7 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from packages.database.base import Base
-from packages.database.models import *
+from packages.database.models import *  # noqa: F401, F403 - register every model with Base.metadata
 from packages.shared.config import normalize_async_database_url
 
 config = context.config

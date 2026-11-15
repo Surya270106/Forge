@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { env } from "../../../config/env";
 import { AppShell } from "../../components/AppShell";
 
 type Repository = { id: string; name: string; owner: string; status: string; default_branch: string; indexing_status?: string; indexing_progress?: number };
@@ -19,16 +18,16 @@ export default function RepositoryDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [intent, setIntent] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const headers = useCallback(() => ({ Authorization: `Bearer ${localStorage.getItem("forge_token")}`, "X-Organization-Id": localStorage.getItem("forge_org_id") || "" }), []);
+  const headers = useCallback(() => ({ "X-Organization-Id": localStorage.getItem("forge_org_id") || "" }), []);
   const fetchRepository = useCallback(async () => {
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/imported`, { headers: headers() });
+      const response = await fetch(`/api/v1/repositories/imported`, { headers: headers() });
       if (response.ok) { const data = await response.json(); setRepository((data.repositories || []).find((repo: Repository) => repo.id === repositoryId) || null); }
     } catch (error) { console.error(error); }
   }, [headers, repositoryId]);
   const fetchPlans = useCallback(async () => {
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/plans`, { headers: headers() });
+      const response = await fetch(`/api/v1/plans`, { headers: headers() });
       if (response.ok) { const data = await response.json(); setPlans((data.plans || []).filter((plan: Plan) => plan.repository_id === repositoryId)); }
     } catch (error) { console.error(error); }
   }, [headers, repositoryId]);
@@ -40,7 +39,7 @@ export default function RepositoryDetailPage() {
   const indexRepository = async () => {
     if (!repository) return; setActionLoading(true);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/memory/repositories/${repositoryId}/index`, {
+      const response = await fetch(`/api/v1/memory/repositories/${repositoryId}/index`, {
         method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ branch: repository.default_branch || "main" }),
       });
       if (!response.ok) throw new Error("Index failed");
@@ -50,7 +49,7 @@ export default function RepositoryDetailPage() {
   const createPlan = async () => {
     if (!intent.trim()) return; setActionLoading(true);
     try {
-      const response = await fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/repositories/${repositoryId}/plans`, {
+      const response = await fetch(`/api/v1/repositories/${repositoryId}/plans`, {
         method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ intent }),
       });
       if (response.ok) { const plan = await response.json(); router.push(`/tasks/${plan.id}`); return; }

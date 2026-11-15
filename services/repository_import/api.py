@@ -1,3 +1,4 @@
+import re
 from uuid import UUID
 
 import httpx
@@ -16,18 +17,50 @@ from .service import RepositoryService
 router = APIRouter(prefix="/api/v1/repositories", tags=["Repositories"])
 logger = structlog.get_logger(__name__)
 
-from services.auth.dependencies import get_current_user, require_permission
+from services.auth.dependencies import get_current_user, require_github_token, require_permission
 
 
 @router.post("/import", response_model=ImportRepositoryResponse, status_code=status.HTTP_202_ACCEPTED)
 async def import_repository(
     request: ImportRepositoryRequest,
     organization_id: UUID = Depends(require_permission("repo:import")),
+    user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    token = await require_github_token(user, session)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", request.owner) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", request.name):
+        raise HTTPException(status_code=400, detail="Invalid GitHub repository identity")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            remote = await client.get(
+                f"https://api.github.com/repos/{request.owner}/{request.name}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="GitHub is unavailable; retry the import") from None
+    if remote.status_code in (401, 403, 404):
+        raise HTTPException(status_code=403, detail="GitHub access is unavailable; reconnect or check repository access")
+    if remote.status_code != 200:
+        raise HTTPException(status_code=503, detail="GitHub could not confirm repository access")
+    metadata = remote.json()
+    owner = metadata.get("owner", {}).get("login")
+    name = metadata.get("name")
+    permissions = metadata.get("permissions") or {}
+    if not isinstance(owner, str) or not isinstance(name, str) or not permissions.get("pull"):
+        raise HTTPException(status_code=403, detail="GitHub did not confirm repository read access")
+    if f"{owner}/{name}".casefold() != f"{request.owner}/{request.name}".casefold():
+        raise HTTPException(status_code=400, detail="Repository identity changed; select it again")
+    branch = metadata.get("default_branch")
+    if not isinstance(branch, str) or not branch or request.branch != branch:
+        raise HTTPException(status_code=400, detail="Select the repository's current default branch")
+    canonical = f"https://github.com/{owner}/{name}.git"
+    verified_request = request.model_copy(update={
+        "owner": owner, "name": name, "clone_url": canonical,
+        "branch": branch, "is_private": bool(metadata.get("private")),
+    })
     service = RepositoryService(session)
     try:
-        repo, job = await service.register_repository_for_import(organization_id, request)
+        repo, job = await service.register_repository_for_import(organization_id, verified_request, requested_by=UUID(user["id"]))
     except ConflictError as e:
         logger.warning("import_repository_conflict", error=str(e), org_id=str(organization_id))
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=e.message)
@@ -86,10 +119,8 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
 
 
 @router.get("/github-repos")
-async def list_github_repositories(user: dict = Depends(get_current_user)):
-    token = user.get("github_token")
-    if not token:
-        raise HTTPException(status_code=400, detail="GitHub token not found. Please log in with GitHub again.")
+async def list_github_repositories(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    token = await require_github_token(user, session)
 
     async with httpx.AsyncClient() as client:
         res = await client.get(

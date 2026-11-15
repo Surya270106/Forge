@@ -1,10 +1,23 @@
 import asyncio
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+def _workspace_path(workspace_root: str, path: str) -> Path:
+    """Resolve a workspace-relative path without allowing traversal or symlink escapes."""
+    relative = Path(path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise PermissionError("Path is outside the workspace")
+    root = Path(workspace_root).resolve()
+    resolved = (root / relative).resolve()
+    if not resolved.is_relative_to(root):
+        raise PermissionError("Path is outside the workspace")
+    return resolved
 
 
 @dataclass
@@ -45,10 +58,7 @@ class LocalProcessSandbox(SandboxRuntime):
 
     def _validate_path(self, path: str) -> str:
         """Ensure paths do not escape the workspace root."""
-        abs_path = os.path.abspath(os.path.join(self.workspace_root, path))
-        if not abs_path.startswith(os.path.abspath(self.workspace_root)):
-            raise PermissionError(f"Path traversal attempted: {path}")
-        return abs_path
+        return str(_workspace_path(self.workspace_root, path))
 
     async def run_command(self, command: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> SandboxResult:
         target_cwd = self.workspace_root
@@ -124,8 +134,15 @@ class DockerSandbox(SandboxRuntime):
             f"forge-sandbox-{self.sandbox_id}",
             "--rm",
             "--read-only",
+            "--user",
+            "1000:1000",
+            "--env",
+            "HOME=/tmp",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
+            "--memory=512m",
+            "--cpus=1",
+            "--pids-limit=128",
             "--network",
             "none" if self.network_disabled else "bridge",
             "-v",
@@ -155,14 +172,26 @@ class DockerSandbox(SandboxRuntime):
         logger.info("docker_container_started", container_id=self.container_id)
 
     async def run_command(self, command: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> SandboxResult:
+        container_cwd = None
+        if cwd:
+            # Workers use /workspace paths; verifiers use relative paths.
+            relative_cwd = cwd.removeprefix("/workspace/") if cwd.startswith("/workspace/") else cwd
+            if relative_cwd == "/workspace":
+                relative_cwd = "."
+            resolved = _workspace_path(self.workspace_root, relative_cwd)
+            container_cwd = (
+                "/workspace"
+                if resolved == Path(self.workspace_root).resolve()
+                else f"/workspace/{resolved.relative_to(Path(self.workspace_root).resolve()).as_posix()}"
+            )
         await self._ensure_container()
 
         exec_cmd = ["docker", "exec"]
         if env:
             for k, v in env.items():
                 exec_cmd.extend(["-e", f"{k}={v}"])
-        if cwd:
-            exec_cmd.extend(["-w", cwd])
+        if container_cwd:
+            exec_cmd.extend(["-w", container_cwd])
 
         exec_cmd.append(self.container_id)  # type: ignore
         exec_cmd.extend(command)
@@ -188,19 +217,13 @@ class DockerSandbox(SandboxRuntime):
         return SandboxResult(exit_code=exit_code, stdout=stdout.decode(), stderr=stderr.decode())
 
     async def write_file(self, path: str, content: bytes) -> None:
-        # In a real DockerSandbox, we write to the mounted volume on the host,
-        # so it's the same as LocalProcessSandbox.
-        safe_path = os.path.abspath(os.path.join(self.workspace_root, path))
-        if not safe_path.startswith(os.path.abspath(self.workspace_root)):
-            raise PermissionError(f"Path traversal attempted: {path}")
+        safe_path = _workspace_path(self.workspace_root, path)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, "wb") as f:
             f.write(content)
 
     async def read_file(self, path: str) -> bytes:
-        safe_path = os.path.abspath(os.path.join(self.workspace_root, path))
-        if not safe_path.startswith(os.path.abspath(self.workspace_root)):
-            raise PermissionError(f"Path traversal attempted: {path}")
+        safe_path = _workspace_path(self.workspace_root, path)
         if not os.path.exists(safe_path):
             raise FileNotFoundError(f"File not found: {path}")
         with open(safe_path, "rb") as f:

@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { env } from "../../config/env";
 
 const navigation = [
   { href: "/", label: "Dashboard", index: "01" },
@@ -18,6 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string; email: string; name: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signOutError, setSignOutError] = useState("");
   const isDashboard = pathname === "/";
 
   useEffect(() => {
@@ -25,17 +25,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    const token = localStorage.getItem("forge_token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
+    localStorage.removeItem("forge_token");
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 5000);
-    fetch(`${env.NEXT_PUBLIC_API_BASE_URL}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    })
+    fetch(`/api/v1/auth/me`, { signal: controller.signal })
       .then((response) => {
         window.clearTimeout(timeoutId);
         if (!response.ok) throw new Error("Unauthorized");
@@ -48,7 +41,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       .catch((error) => {
         window.clearTimeout(timeoutId);
         console.error("Auth fetch failed:", error);
-        localStorage.removeItem("forge_token");
         router.push("/login");
       });
     return () => window.clearTimeout(timeoutId);
@@ -80,10 +72,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [isDashboard]);
 
-  const signOut = () => {
-    localStorage.removeItem("forge_token");
-    localStorage.removeItem("forge_org_id");
-    router.push("/login");
+  const signOut = async () => {
+    setSignOutError("");
+    try {
+      const response = await fetch(`/api/v1/auth/logout`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Session revocation failed");
+      localStorage.removeItem("forge_org_id");
+      router.push("/login");
+    } catch {
+      setSignOutError("Could not sign out. Please try again.");
+    }
   };
   const active = (href: string) =>
     href === "/" ? pathname === "/" : pathname?.startsWith(`/${href.split("/")[1]}`);
@@ -112,10 +112,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
-        <button className="header-source user-control" onClick={signOut}>
+        <button className="header-source user-control" onClick={() => void signOut()}>
           <span className="user-name">{user?.name || user?.email || "Account"}</span>
           <span aria-hidden="true">Sign out ↗</span>
         </button>
+        {signOutError && <span role="alert">{signOutError}</span>}
       </header>
       <main className={isDashboard ? "app-main app-main-dashboard" : "app-main"}>{children}</main>
       <nav className="mobile-nav" aria-label="Mobile workspace navigation">

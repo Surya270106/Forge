@@ -1,5 +1,5 @@
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
@@ -72,6 +72,8 @@ class ForgeSettings(BaseSettings):
                 raise ValueError("encryption_key must be set in production")
             if not self.database_url or "forge:forge@localhost" in self.database_url:
                 raise ValueError("Valid production database_url required")
+            if unquote(urlsplit(self.database_url).username or "") == "forge_admin":
+                raise ValueError("Production API database role must not be forge_admin because RLS policies exempt it")
             if not self.redis_url:
                 raise ValueError("redis_url required in production")
             if not self.github_client_id or not self.github_client_secret or not self.github_client_secret.get_secret_value():

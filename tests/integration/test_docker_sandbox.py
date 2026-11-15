@@ -1,10 +1,18 @@
 import shutil
+import subprocess
 
 import pytest
 
 from services.execution.sandbox import DockerSandbox
 
-pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="Docker daemon is not available")
+
+def _docker_available() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    return subprocess.run(["docker", "info"], capture_output=True, timeout=10, check=False).returncode == 0
+
+
+pytestmark = pytest.mark.skipif(not _docker_available(), reason="Docker daemon is not available")
 
 
 @pytest.mark.asyncio

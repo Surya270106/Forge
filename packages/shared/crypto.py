@@ -1,7 +1,8 @@
 import base64
 import hashlib
+import re
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from packages.shared.config import get_settings
 
@@ -33,12 +34,15 @@ class CryptoService:
 
     @classmethod
     def decrypt(cls, encrypted_data: str) -> str:
-        """Decrypts a url-safe base64 encoded string. Falls back to original string if invalid."""
+        """Decrypt credentials, allowing only recognizable legacy plaintext keys."""
         if not encrypted_data:
             return encrypted_data
         try:
             f = cls._get_fernet()
             return f.decrypt(encrypted_data.encode("utf-8")).decode("utf-8")
-        except Exception:
-            # Fallback for legacy plaintext tokens
-            return encrypted_data
+        except InvalidToken:
+            # Older records may contain GitHub or supported provider tokens in
+            # plaintext. Never return arbitrary malformed ciphertext as a key.
+            if re.fullmatch(r"(?:gh[pousr]_|github_pat_|sk-|gsk_)[A-Za-z0-9_-]{8,}", encrypted_data):
+                return encrypted_data
+            raise ValueError("Stored credential could not be decrypted") from None

@@ -44,6 +44,32 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   } catch {
     return NextResponse.json({ detail: "API service unavailable" }, { status: 503 });
   }
+  if (method === "GET" && path.join("/") === "auth/github/login" && upstream.ok) {
+    let data: { url: string };
+    let authorizationURL: URL;
+    try {
+      const payload: unknown = await upstream.json();
+      if (!payload || typeof payload !== "object" || !("url" in payload) || typeof payload.url !== "string") throw new Error("Invalid login URL");
+      data = { url: payload.url };
+      authorizationURL = new URL(data.url);
+    } catch {
+      return NextResponse.json({ detail: "Invalid login response" }, { status: 502 });
+    }
+    const state = authorizationURL.searchParams.get("state");
+    if (authorizationURL.origin !== "https://github.com" || !state || !/^[0-9a-f-]{36}$/.test(state)) {
+      return NextResponse.json({ detail: "Invalid login response" }, { status: 502 });
+    }
+    const response = NextResponse.json(data);
+    response.headers.set("Cache-Control", "no-store");
+    response.cookies.set("forge_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 600,
+    });
+    return response;
+  }
   const response = new NextResponse(upstream.body, {
     status: upstream.status,
     headers: { "Content-Type": upstream.headers.get("content-type") || "application/json", "Cache-Control": "no-store" },

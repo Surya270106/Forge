@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
+import { AtlasPanel } from "../../components/AtlasPanel";
+import { IssueToPrPanel } from "../../components/IssueToPrPanel";
 
 type Repository = { id: string; name: string; owner: string; status: string; default_branch: string; indexing_status?: string; indexing_progress?: number };
 type Plan = { id: string; repository_id: string; intent: string; status: string; created_at: string };
-type Tab = "overview" | "memory" | "plans" | "runs";
+type Tab = "overview" | "memory" | "atlas" | "plans" | "runs";
 
 export default function RepositoryDetailPage() {
   const repositoryId = useParams().id as string;
@@ -17,25 +19,30 @@ export default function RepositoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [intent, setIntent] = useState("");
+  const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const headers = useCallback(() => ({ "X-Organization-Id": localStorage.getItem("forge_org_id") || "" }), []);
   const fetchRepository = useCallback(async () => {
     try {
       const response = await fetch(`/api/v1/repositories/imported`, { headers: headers() });
-      if (response.ok) { const data = await response.json(); setRepository((data.repositories || []).find((repo: Repository) => repo.id === repositoryId) || null); }
-    } catch (error) { console.error(error); }
+      if (!response.ok) throw new Error("Repository status is unavailable. Refresh to try again.");
+      const data = await response.json(); setRepository((data.repositories || []).find((repo: Repository) => repo.id === repositoryId) || null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Repository status is unavailable."); }
   }, [headers, repositoryId]);
   const fetchPlans = useCallback(async () => {
     try {
       const response = await fetch(`/api/v1/plans`, { headers: headers() });
       if (response.ok) { const data = await response.json(); setPlans((data.plans || []).filter((plan: Plan) => plan.repository_id === repositoryId)); }
-    } catch (error) { console.error(error); }
+    } catch { setError("Task history is unavailable. Refresh to try again."); }
   }, [headers, repositoryId]);
   useEffect(() => {
     Promise.all([fetchRepository(), fetchPlans()]).finally(() => setLoading(false));
-    const interval = window.setInterval(() => { void fetchRepository(); void fetchPlans(); }, 5000);
-    return () => window.clearInterval(interval);
   }, [fetchPlans, fetchRepository]);
+  useEffect(() => {
+    if (!repository || (repository.status === "READY" && !["PENDING", "SCANNING", "PARSING"].includes(repository.indexing_status || ""))) return;
+    const interval = window.setInterval(() => { void fetchRepository(); }, 8000);
+    return () => window.clearInterval(interval);
+  }, [fetchRepository, repository]);
   const indexRepository = async () => {
     if (!repository) return; setActionLoading(true);
     try {
@@ -44,7 +51,7 @@ export default function RepositoryDetailPage() {
       });
       if (!response.ok) throw new Error("Index failed");
       setActiveTab("memory"); await fetchRepository();
-    } catch (error) { console.error(error); window.alert("Failed to start indexing."); } finally { setActionLoading(false); }
+    } catch { setError("Indexing could not start. Check repository status and try again."); } finally { setActionLoading(false); }
   };
   const createPlan = async () => {
     if (!intent.trim()) return; setActionLoading(true);
@@ -53,11 +60,11 @@ export default function RepositoryDetailPage() {
         method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ intent }),
       });
       if (response.ok) { const plan = await response.json(); router.push(`/tasks/${plan.id}`); return; }
-      const error = await response.json().catch(() => ({})); window.alert(`Failed to create plan: ${error.detail || error.message || response.status}`);
-    } catch (error) { console.error(error); window.alert("Failed to create plan."); } finally { setActionLoading(false); }
+      const detail = await response.json().catch(() => ({})); setError(typeof detail.detail === "string" ? detail.detail : "Plan creation failed. Check provider configuration and repository context.");
+    } catch { setError("Plan creation failed. Check the connection and try again."); } finally { setActionLoading(false); }
   };
   if (loading) return <AppShell><div className="data-state full-page-state"><span className="loading-orbit" />Reading repository context</div></AppShell>;
-  if (!repository) return <AppShell><div className="data-state full-page-state">Repository not found.</div></AppShell>;
+  if (!repository) return <AppShell><div className="data-state full-page-state">{error || "Repository not found in this workspace."} <Link href="/repositories">Browse repositories →</Link></div></AppShell>;
 
   const pending = plans.filter((plan) => plan.status === "PENDING_APPROVAL");
   const indexState = repository.indexing_status || "NOT_STARTED";
@@ -73,20 +80,21 @@ export default function RepositoryDetailPage() {
           <span><i>State</i><strong className={`status-${repository.status.toLowerCase()}`}>{repository.status}</strong></span>
         </div>
       </header>
+      {error && <p className="product-alert" role="alert">{error}</p>}
       <nav className="segment-nav" aria-label="Repository sections">
-        {([["overview", "Task"], ["memory", "Memory"], ["plans", `Plans ${String(plans.length).padStart(2, "0")}`], ["runs", "Runs"]] as [Tab, string][]).map(([tab, label], index) => (
+        {([["overview", "Task"], ["memory", "Memory"], ["atlas", "Atlas"], ["plans", `Plans ${String(plans.length).padStart(2, "0")}`], ["runs", "Runs"]] as [Tab, string][]).map(([tab, label], index) => (
           <button type="button" className={activeTab === tab ? "is-active" : ""} onClick={() => setActiveTab(tab)} key={tab}><span>{String(index + 1).padStart(2, "0")}</span>{label}</button>
         ))}
       </nav>
       {activeTab === "overview" && (
-        <section className="workbench-panel">
+        <><section className="workbench-panel">
           <div className="workbench-copy"><span>New engineering task</span><h2>Describe the outcome, not the implementation.</h2><p>Forge will use repository memory to turn your intent into a reviewable plan before it changes a file.</p>
             <div className="workbench-stats"><span><i>Pending plans</i><strong>{String(pending.length).padStart(2, "0")}</strong></span><span><i>Memory</i><strong>{indexState.replaceAll("_", " ")}</strong></span></div>
           </div>
-          <div className="intent-console"><label htmlFor="forge-intent">Intent</label><textarea id="forge-intent" value={intent} onChange={(e) => setIntent(e.target.value)} placeholder="Add a rate limit to the authentication middleware and verify the existing login flow." rows={7} />
+          <div className="intent-console"><label htmlFor="forge-intent">Intent</label><div className="task-starters" aria-label="Task starters"><button type="button" onClick={() => setIntent("Investigate a bug in this repository. Identify the cause, propose a minimal fix, and add regression coverage.")}>Investigate a bug</button><button type="button" onClick={() => setIntent("Add regression tests for a specific behavior. First inspect the existing implementation and test conventions.")}>Add tests</button><button type="button" onClick={() => setIntent("Implement a feature in this repository. Explain the affected files and verification steps before editing.")}>Implement a feature</button></div><textarea id="forge-intent" value={intent} onChange={(e) => setIntent(e.target.value)} placeholder="Add a rate limit to the authentication middleware and verify the existing login flow." rows={7} />
             <div><code>Repository / {repository.owner}/{repository.name}</code><button type="button" className="button button-white" disabled={actionLoading || !intent.trim() || repository.status !== "READY"} onClick={createPlan}>{actionLoading ? "Planning…" : "Generate plan"} <span>→</span></button></div>
           </div>
-        </section>
+        </section><IssueToPrPanel repositoryId={repositoryId} /></>
       )}
       {activeTab === "memory" && (
         <section className="focus-panel"><div className="section-label"><span>02</span>Repository memory</div><div>
@@ -98,6 +106,7 @@ export default function RepositoryDetailPage() {
           <button type="button" className="button button-primary" onClick={indexRepository} disabled={actionLoading || repository.status !== "READY"}>{actionLoading ? "Starting…" : indexState === "COMPLETED" ? "Re-index codebase" : "Index codebase"} <span>→</span></button>
         </div></section>
       )}
+      {activeTab === "atlas" && <AtlasPanel repositoryId={repositoryId} repositoryReady={repository.status === "READY"} />}
       {activeTab === "plans" && (
         <section className="data-ledger detail-ledger">
           <div className="data-ledger-head plan-ledger-grid"><span>Intent</span><span>Status</span><span>Created</span><span>Review</span></div>

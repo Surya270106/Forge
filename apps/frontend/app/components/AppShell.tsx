@@ -9,7 +9,8 @@ const navigation = [
   { href: "/", label: "Dashboard", index: "01" },
   { href: "/repositories", label: "Repositories", index: "02" },
   { href: "/tasks", label: "Runs", index: "03" },
-  { href: "/settings/provider", label: "Settings", index: "04" },
+  { href: "/bench", label: "Bench", index: "04" },
+  { href: "/settings/provider", label: "Settings", index: "05" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -17,6 +18,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string; email: string; name: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [signOutError, setSignOutError] = useState("");
   const isDashboard = pathname === "/";
 
@@ -26,51 +28,31 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     localStorage.removeItem("forge_token");
+    let active = true;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+    const timeoutId = window.setTimeout(() => {
+      if (active) { setAuthError("Workspace sign-in timed out."); setLoading(false); }
+      controller.abort();
+    }, 5000);
     fetch(`/api/v1/auth/me`, { signal: controller.signal })
       .then((response) => {
         window.clearTimeout(timeoutId);
-        if (!response.ok) throw new Error("Unauthorized");
+        if (controller.signal.aborted) throw new Error("Workspace sign-in timed out.");
+        if (response.status === 401) { router.push("/login"); return null; }
+        if (!response.ok) throw new Error("Workspace sign-in could not be checked.");
         return response.json();
       })
       .then((data) => {
+        if (!data) return;
         setUser(data);
         setLoading(false);
       })
       .catch((error) => {
         window.clearTimeout(timeoutId);
-        console.error("Auth fetch failed:", error);
-        router.push("/login");
+        if (active) { setAuthError(controller.signal.aborted ? "Workspace sign-in timed out." : error instanceof Error ? error.message : "Workspace sign-in is unavailable."); setLoading(false); }
       });
-    return () => window.clearTimeout(timeoutId);
+    return () => { active = false; window.clearTimeout(timeoutId); controller.abort(); };
   }, [pathname, router]);
-
-  useEffect(() => {
-    let frame = 0;
-    const update = () => {
-      const progress = isDashboard
-        ? Math.min(Math.max(window.scrollY / (Math.max(window.innerHeight, 1) * 0.9), 0), 1)
-        : 0;
-      document.documentElement.style.setProperty(
-        "--blob-page-opacity",
-        String(isDashboard ? 1 - progress * 0.78 : 0.2),
-      );
-      frame = 0;
-    };
-    const onScroll = () => {
-      if (!frame) frame = window.requestAnimationFrame(update);
-    };
-    update();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      document.documentElement.style.removeProperty("--blob-page-opacity");
-    };
-  }, [isDashboard]);
 
   const signOut = async () => {
     setSignOutError("");
@@ -89,6 +71,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     href === "/" ? pathname === "/" : pathname?.startsWith(`/${href.split("/")[1]}`);
 
   if (pathname?.startsWith("/login")) return <>{children}</>;
+  if (authError) return <div className="app-loading app-auth-error" role="alert"><strong>Forge could not check your session.</strong><span>{authError}</span><button type="button" onClick={() => window.location.reload()}>Retry</button></div>;
   if (loading) {
     return (
       <div className="app-loading">

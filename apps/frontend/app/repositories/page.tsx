@@ -6,25 +6,42 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "../components/AppShell";
 
 type GitHubRepository = { name: string; owner: string; description?: string; clone_url: string; default_branch?: string; is_private: boolean };
+type ImportedRepository = { id: string; name: string; owner: string; status: string; indexing_status?: string };
 
 export default function RepositoriesPage() {
   const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
+  const [imported, setImported] = useState<ImportedRepository[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [githubUnavailable, setGithubUnavailable] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    fetch(`/api/v1/repositories/github-repos`).then(async (response) => {
-      if (response.status === 401 || response.status === 400) { router.push("/login"); return; }
-      if (response.ok) { const data = await response.json(); setRepositories(data.repositories || []); }
-    }).catch(console.error).finally(() => setLoading(false));
+    const controller = new AbortController();
+    const headers = { "X-Organization-Id": localStorage.getItem("forge_org_id") || "" };
+    void Promise.all([
+      fetch(`/api/v1/repositories/github-repos`, { signal: controller.signal }),
+      fetch(`/api/v1/repositories/imported`, { headers, signal: controller.signal }),
+    ]).then(async ([githubResponse, importedResponse]) => {
+      if (importedResponse.ok) setImported((await importedResponse.json()).repositories || []);
+      else setError("Imported repository status could not be loaded. Refresh before importing again.");
+      if (githubResponse.status === 401 || githubResponse.status === 400 || githubResponse.status === 403) {
+        setGithubUnavailable(true);
+        setError("GitHub repository access is unavailable. Reconnect GitHub, then refresh this page.");
+        return;
+      }
+      if (!githubResponse.ok) { setGithubUnavailable(true); setError("GitHub repositories could not be loaded. Refresh to try again."); return; }
+      setRepositories((await githubResponse.json()).repositories || []);
+    }).catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Repositories are unavailable."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [router]);
 
   const handleImport = async (repo: GitHubRepository) => {
     const orgId = localStorage.getItem("forge_org_id");
-    if (!orgId) { window.alert("No workspace selected. Please sign in again."); return; }
-    setImporting(repo.name);
+    if (!orgId) { setError("Select a workspace before importing a repository."); return; }
+    setImporting(`${repo.owner}/${repo.name}`); setError("");
     try {
       const response = await fetch(`/api/v1/repositories/import`, {
         method: "POST",
@@ -37,12 +54,13 @@ export default function RepositoriesPage() {
         return; 
       }
       const error = await response.json().catch(() => ({}));
-      window.alert(`Failed to import: ${error.detail || response.status}`);
-    } catch (error) { console.error(error); window.alert("An error occurred during import."); }
+      setError(typeof error.detail === "string" ? error.detail : `Import could not start (${response.status}).`);
+    } catch { setError("Import could not start. Check the connection and try again."); }
     finally { setImporting(null); }
   };
 
   const filtered = useMemo(() => repositories.filter((repo) => `${repo.owner}/${repo.name}`.toLowerCase().includes(search.toLowerCase())), [repositories, search]);
+  const visibleImported = useMemo(() => imported.filter((repo) => `${repo.owner}/${repo.name}`.toLowerCase().includes(search.toLowerCase())), [imported, search]);
 
   return (
     <AppShell><div className="page-frame">
@@ -52,21 +70,24 @@ export default function RepositoriesPage() {
         <h1>Bring the codebase<br />into context.</h1>
         <p>Select a GitHub repository. Forge will import its source, preserve the default branch, and prepare it for indexing.</p>
       </header>
+      {error && <p className="product-alert" role="alert">{error} {githubUnavailable && <Link href="/login">Reconnect GitHub →</Link>}</p>}
       <div className="page-toolbar">
         <label className="search-field"><span>Search</span><input type="search" placeholder="Repository name or owner" value={search} onChange={(e) => setSearch(e.target.value)} /><i>⌕</i></label>
-        <span className="toolbar-count">{loading ? "—" : String(filtered.length).padStart(2, "0")} available</span>
+        <span className="toolbar-count">{loading ? "—" : String(githubUnavailable ? visibleImported.length : filtered.length).padStart(2, "0")} available</span>
       </div>
       <section className="data-ledger" aria-label="GitHub repositories">
         <div className="data-ledger-head repo-ledger-grid"><span>Repository</span><span>Visibility</span><span>Branch</span><span>Action</span></div>
         {loading ? <div className="data-state"><span className="loading-orbit" />Reading GitHub repositories</div> :
-          filtered.length === 0 ? <div className="data-state">{repositories.length ? "No repositories match this search." : "No repositories were returned by GitHub."}</div> :
-          filtered.map((repo, index) => (
-            <article className="data-row repo-ledger-grid" key={`${repo.owner}/${repo.name}`}>
-              <div className="data-primary"><i>{String(index + 1).padStart(2, "0")}</i><div><h2>{repo.owner}/{repo.name}</h2><p>{repo.description || "No description provided."}</p></div></div>
-              <span className="mono-value">{repo.is_private ? "Private" : "Public"}</span><code>{repo.default_branch || "main"}</code>
-              <button className="row-action" type="button" disabled={importing === repo.name} onClick={() => handleImport(repo)}>{importing === repo.name ? "Importing…" : "Import"} <span>→</span></button>
-            </article>
-          ))}
+          githubUnavailable && visibleImported.length ? visibleImported.map((repo, index) => <article className="data-row repo-ledger-grid" key={repo.id}><div className="data-primary"><i>{String(index + 1).padStart(2, "0")}</i><div><h2>{repo.owner}/{repo.name}</h2><p>Imported · {repo.status.replaceAll("_", " ").toLowerCase()}</p></div></div><span className="mono-value">Forge workspace</span><code>—</code><Link className="row-action" href={`/repositories/${repo.id}`}>Open <span>→</span></Link></article>) :
+          filtered.length === 0 ? <div className="data-state">{githubUnavailable ? "GitHub discovery is unavailable. No imported repositories match this search." : repositories.length ? "No repositories match this search." : "No repositories were returned by GitHub."}</div> :
+          filtered.map((repo, index) => {
+            const existing = imported.find((item) => item.owner === repo.owner && item.name === repo.name);
+            return <article className="data-row repo-ledger-grid" key={`${repo.owner}/${repo.name}`}>
+              <div className="data-primary"><i>{String(index + 1).padStart(2, "0")}</i><div><h2>{repo.owner}/{repo.name}</h2><p>{existing ? `Forge: ${existing.status.replaceAll("_", " ").toLowerCase()}${existing.indexing_status ? ` · index ${existing.indexing_status.replaceAll("_", " ").toLowerCase()}` : ""}` : repo.description || "Not imported into Forge."}</p></div></div>
+              <span className="mono-value">{repo.is_private ? "Private" : "Public"}</span><code>{repo.default_branch || "Branch unavailable"}</code>
+              {existing ? <Link className="row-action" href={`/repositories/${existing.id}`}>Open <span>→</span></Link> : <button className="row-action" type="button" disabled={importing === `${repo.owner}/${repo.name}`} onClick={() => handleImport(repo)}>{importing === `${repo.owner}/${repo.name}` ? "Importing…" : "Import"} <span>→</span></button>}
+            </article>;
+          })}
       </section>
     </div></AppShell>
   );

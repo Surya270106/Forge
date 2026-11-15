@@ -32,7 +32,7 @@ export default function WorkspacesPage() {
   return (
     <AppShell><div className="page-frame">
       <header className="page-intro settings-intro"><div className="section-label"><span>04</span>System configuration</div><h1>Keep every team<br />boundary explicit.</h1><p>Workspaces scope repository context, plans, execution evidence, credentials, and audit history.</p></header>
-      <nav className="settings-switcher"><Link href="/settings/provider"><span>01</span>Provider</Link><Link href="/settings/workspaces" className="is-active"><span>02</span>Workspaces</Link></nav>
+      <nav className="settings-switcher"><Link href="/settings/provider"><span>01</span>Provider</Link><Link href="/settings/workspaces" className="is-active"><span>02</span>Workspaces</Link><Link href="/settings/safety"><span>03</span>Safety Gate</Link></nav>
       <section className="workspace-editor">
         <div className="workspace-create"><span>Create workspace</span><h2>A new boundary for code and execution.</h2><div><input className="forge-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Workspace name" /><button type="button" className="button button-primary" disabled={creating || !name.trim()} onClick={create}>{creating ? "Creating…" : "Create workspace"} <span>→</span></button></div></div>
         <div className="workspace-list">

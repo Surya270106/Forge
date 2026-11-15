@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
 
+const previewURL = process.env.FORGE_PREVIEW_URL || 'http://localhost:3000';
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
@@ -14,17 +16,17 @@ export default defineConfig({
   reporter: 'html',
   use: {
     actionTimeout: 0,
-    baseURL: 'http://localhost:3000',
+    baseURL: previewURL,
     trace: 'on-first-retry',
-    video: 'retain-on-failure',
+    video: process.env.FORGE_PREVIEW_URL ? 'off' : 'retain-on-failure',
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], launchOptions: process.env.FORGE_CHROMIUM_PATH ? { executablePath: process.env.FORGE_CHROMIUM_PATH } : undefined },
     }
   ],
-  webServer: [
+  webServer: process.env.FORGE_PREVIEW_URL ? [] : [
     {
       command: 'npm run dev',
       port: 3000,

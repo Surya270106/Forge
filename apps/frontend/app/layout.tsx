@@ -3,7 +3,8 @@ import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import "./marketing.css";
 import "./workspace.css";
-import BlobScene from "./components/blob-scene";
+import "./product.css";
+import BrandScene from "./components/BrandScene";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -29,7 +30,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${robotoMono.variable} antialiased`}>
         <div className="forge-app">
-          <BlobScene />
+          <BrandScene />
           {children}
         </div>
       </body>

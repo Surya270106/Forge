@@ -12,9 +12,19 @@ export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) {
     return NextResponse.json({ detail: "Invalid request origin" }, { status: 403 });
   }
-  const { code } = await request.json();
+  let code: unknown;
+  let state: unknown;
+  try {
+    ({ code, state } = await request.json());
+  } catch {
+    return NextResponse.json({ detail: "Invalid login request" }, { status: 400 });
+  }
   if (typeof code !== "string" || code.length < 16 || code.length > 128) {
     return NextResponse.json({ detail: "Invalid login code" }, { status: 400 });
+  }
+  const expectedState = request.cookies.get("forge_oauth_state")?.value;
+  if (!expectedState || typeof state !== "string" || state !== expectedState) {
+    return NextResponse.json({ detail: "Login was not started in this browser" }, { status: 403 });
   }
   let upstream: Response;
   try {
@@ -43,6 +53,7 @@ export async function POST(request: NextRequest) {
     path: "/",
     maxAge: 7 * 24 * 60 * 60,
   });
+  response.cookies.delete("forge_oauth_state");
   response.headers.set("Cache-Control", "no-store");
   return response;
 }

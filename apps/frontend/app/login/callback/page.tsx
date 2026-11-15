@@ -10,7 +10,8 @@ function CallbackHandler() {
 
   useEffect(() => {
     const code = searchParams.get('code');
-    if (!code) {
+    const state = searchParams.get('state');
+    if (!code || !state) {
       setError('The login link is invalid. Start GitHub sign-in again.');
       return;
     }
@@ -20,7 +21,7 @@ function CallbackHandler() {
         const response = await fetch(`/api/auth/exchange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, state }),
           signal: controller.signal,
         });
         if (!response.ok) throw new Error('Sign-in expired. Start GitHub sign-in again.');

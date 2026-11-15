@@ -12,7 +12,7 @@ primary boundaries are:
 - API authentication, role-based permissions, and organization-scoped database access;
 - PostgreSQL row-level security for tenant-owned records;
 - encryption for stored provider credentials;
-- per-job workspaces and allowlisted Docker images for execution;
+- organization/repository-scoped workspaces and allowlisted Docker images for execution;
 - network-disabled containers for verification workloads that do not require egress;
 - audit records for sensitive workflow changes.
 
@@ -36,6 +36,32 @@ effectively host-level privilege: a compromised worker or sandbox-management pat
 able to control the Docker host. Use a dedicated host, restrict access to the worker, keep
 the sandbox image allowlist narrow, and review resource and network policy before running
 repository code.
+
+Sandbox command capture stops a command after 64 KiB on either stdout or stderr,
+marks the result failed, and removes its Docker container. This bounds command
+output held in worker memory before logs or verification results are persisted.
+Command nodes fail if they change tracked or untracked repository files; reviewable
+changes must come from `edit_file` mutations so verification cannot pass against
+source changes missing from patch approval and publication.
+An OS-level worker kill bypasses Python's sandbox cleanup and can leave a running
+`forge-sandbox-*` container behind. Until a host-side reaper with verified job
+ownership exists, inspect these containers and their `/workspace` mounts after a
+crash; stop only containers whose owning execution or verification is inactive.
+Each execution attempt uses a separate Git worktree at the recorded base commit.
+The imported checkout remains separate. Attempt worktrees are retained for review
+and crash recovery; no automatic retention cleanup is implemented yet. Protect
+the worker host from disk exhaustion and remove old worktrees only after confirming
+their jobs are inactive and their review evidence is no longer needed.
+
+Abuse-sensitive API operations use atomic Redis rate limits keyed by authenticated
+user and organization, or by client IP before login. The default window is 60
+seconds, with separate configurable limits for auth, model, repository,
+execution, and patch operations. Organization budgets are three times the
+per-user budget. These operations return 429 with `Retry-After` when exhausted
+and 503 when Redis cannot enforce the limit. Forwarded IP headers are ignored
+unless the immediate peer matches `TRUSTED_PROXY_CIDRS`; configure only known
+proxy networks. These request limits do not cap concurrent worker jobs or model
+spend.
 
 `LocalProcessSandbox` executes directly on the host and is intended only for trusted
 development fixtures. It is not an isolation boundary and must never run arbitrary or

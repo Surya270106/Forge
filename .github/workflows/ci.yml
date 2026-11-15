@@ -23,7 +23,7 @@ jobs:
           version: '0.13.5'
       - run: uv sync --locked --extra dev
       - run: uv run --no-sync ruff check --select E,F --ignore E402,E501 apps/api apps/worker packages services migrations tests
-      - run: uv run --no-sync pytest tests -q --ignore=tests/security/test_rls.py --ignore=tests/integration/test_import_replay.py
+      - run: uv run --no-sync python -m pytest tests -q --ignore=tests/security/test_rls.py --ignore=tests/integration/test_import_replay.py
       - run: uv run --no-sync alembic heads
 
   frontend:
@@ -69,7 +69,7 @@ jobs:
           version: '0.13.5'
       - run: uv sync --locked --extra dev
       - run: docker info
-      - run: uv run --no-sync pytest -q tests/integration/test_docker_sandbox.py tests/security/test_docker_sandbox_security.py
+      - run: uv run --no-sync python -m pytest -q tests/integration/test_docker_sandbox.py tests/security/test_docker_sandbox_security.py
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -86,9 +86,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       DATABASE_URL: postgresql+asyncpg://postgres:forge_ci_test@localhost:5432/forge_ci
       FORGE_RLS_TEST_DATABASE_URL: postgresql+asyncpg://postgres:forge_ci_test@localhost:5432/forge_ci
+      FORGE_ISSUE_TEST_DATABASE_URL: postgresql+asyncpg://postgres:forge_ci_test@localhost:5432/forge_ci
+      FORGE_ISSUE_TEST_CONFIRM_DISPOSABLE: '1'
+      REDIS_URL: redis://127.0.0.1:6379/14
+      FORGE_TEST_REDIS_URL: redis://127.0.0.1:6379/14
+      FORGE_ATLAS_TEST_REDIS_URL: redis://127.0.0.1:6379/14
     steps:
       - uses: actions/checkout@v7
         with:
@@ -101,7 +115,8 @@ jobs:
           version: '0.13.5'
       - run: uv sync --locked --extra dev
       - run: uv run --no-sync alembic upgrade head
-      - run: uv run --no-sync pytest -q tests/security/test_rls.py tests/integration/test_import_replay.py
+      - run: uv run --no-sync python -m pytest -q tests/security/test_rls.py tests/integration/test_import_replay.py
+      - run: uv run --no-sync python -m pytest -q tests/integration tests/security/test_rate_limits.py
 
   worker-e2e:
     runs-on: ubuntu-latest
@@ -147,4 +162,4 @@ jobs:
       - run: docker info
       - run: docker pull node:20-slim
       - run: docker pull python:3.12-slim
-      - run: uv run --no-sync pytest -q tests/integration/test_worker_e2e.py
+      - run: uv run --no-sync python -m pytest -q tests/integration/test_worker_e2e.py

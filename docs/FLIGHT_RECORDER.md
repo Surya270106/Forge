@@ -1,0 +1,45 @@
+# Flight Recorder
+
+Flight Recorder stores execution evidence in PostgreSQL `execution_events`. It extends the existing execution, worker, verification, and patch flows. Apply Alembic head (including `c9f2a6b8d741` and the patch-review FK repair `d4e8a3c1b902`) before starting the updated API or worker images.
+
+## What an event means
+
+Each row has an execution ID, tenant ID, per-execution sequence, worker lease generation (attempt), event type, timestamp, actor category, source, short summary, schema version, and bounded JSON metadata. The execution ID is also the correlation reference; worker claim and lease-expiry rows identify the lease owner. The `(execution_job_id, sequence)` constraint and a short lock on the execution row serialize concurrent writers. Idempotency keys prevent duplicate evidence from redelivered work. A database trigger rejects updates and deletes; PostgreSQL RLS limits reads and inserts to the current organization.
+
+Execution queue/start/finish, worker claim/recovery, verification results, patch approval, and publication outcomes are written with their corresponding database state changes. Worker step and sandbox diagnostics use short separate transactions so a running sandbox does not hold the execution row lock. Edit-file events marked `PROVISIONAL` describe a changed attempt worktree; `repository.mutation_committed` is written only after the final fenced ownership check. A stale worker cannot claim a final result. The timeline is an evidence record, not a substitute for execution status, logs, verification results, or the patch review digest.
+
+Recorded categories include `task.created`, `execution.*`, `worker.*`, `agent.*`, `model.completed`, `tool.*`, `sandbox.*`, `repository.*`, `verification.*`, and `patch.*`. These describe only operations that happened. `agent.step_*` refers to approved plan nodes run by the worker; it does not expose hidden model reasoning. Planning model calls and task-node creation predate the execution job, so their rows are linked from persisted planning records when the execution is queued. They keep their original timestamps and appear before `execution.queued`. Plan node fields have no persisted update operation; approval, rejection, revision, and execution change the plan row or create a new plan instead. The timeline does not invent node-update events from `updated_at`, and revisions receive separate execution IDs. No event claims a model was invoked during the worker run. Model token counts are estimates, and older interaction rows may contain a placeholder latency rather than a measured duration.
+
+## API and workspace
+
+All endpoints require `exec:read` and verify the requested execution belongs to the current organization:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/executions/{id}/timeline?cursor=0&limit=50` | Ascending sequence page; `next_cursor` is null at the end. Supports `event_type`, `actor_type`, and `attempt` filters. Limit is 1–100. |
+| `GET /api/v1/executions/{id}/timeline/{event_id}` | One event within the same execution and organization. |
+| `GET /api/v1/executions/{id}/timeline/export` | Ordered, streamed JSON containing export time, execution ID, schema version, and events. |
+
+The task workspace’s Execution tab loads the real timeline, expands safe metadata, loads subsequent pages, and exports JSON using the same API. Refreshing is limited to active execution or verification/publication work.
+
+## Execution cancellation
+
+Apply Alembic head `e7c0a6d5b421` before starting updated API and worker processes. `POST /api/v1/executions/{id}/cancel` requires an authenticated owner or admin with `exec:cancel` in the execution's organization. Repeated requests are idempotent. The response contains `id`, execution `status`, `cancellation_requested_at`, and `cancellation_status` (`requested`, `completed`, `failed`, or `not_cancellable`). A queued job becomes `CANCELLED` immediately. A running job first records `cancellation_requested_at` and returns HTTP 202; the worker checks PostgreSQL independently of its Redis Streams handler, stops the active sandbox command, removes its Docker container, discards provisional mutations, and then records `CANCELLED`. The task UI keeps polling until the terminal status appears. `execution.cancel_requested`, `execution.cancellation_started`, and `execution.cancelled` distinguish intent from confirmed cleanup.
+
+If sandbox cleanup fails, the job is marked `FAILED` with `execution.cancellation_failed`; Forge does not claim cancellation succeeded. If a worker dies, lease recovery does not replay a job with cancellation intent. It marks the job failed for operator inspection because the orphaned sandbox cannot be proven stopped. Inspect and remove only the sandbox belonging to that execution before retrying. Cancellation does not roll back an external effect already completed by a command. After execution reaches `COMPLETED`, the same endpoint can cancel a pending or running verification job while preserving the completed execution result. The verifier uses the same PostgreSQL intent, stops its Docker command, and records `verification.cancelled` only after cleanup; an interrupted verifier is marked failed for inspection. Patch generation is blocked while that cancellation request is active. Completed verification, patch approval, and GitHub publication cannot be cancelled or undone through this endpoint. A planning model call happens before the execution job exists, so this endpoint does not abort an in-flight provider call.
+
+## Privacy and operations
+
+Writers accept only known event types, actor categories, and metadata keys, with a 2 KiB JSON limit. They store IDs, status codes, counts, duration, and digests. They do not copy prompts, model responses, source files, command arguments, stdout/stderr, environment values, secrets, or full diffs. Unknown or unsafe metadata fails the write; supplementary sandbox lifecycle callback failures are logged without preventing container cleanup. API serialization applies the same allowlist again.
+
+## Retention policy
+
+The current policy is **retain all execution events indefinitely** in PostgreSQL. This conservative default applies in development, test, and production. There is no retention environment variable, cleanup job, scheduler, or automatic deletion. An absent setting cannot trigger pruning. The append-only trigger also rejects ordinary row deletion. Monitor table and index size, back up PostgreSQL, and plan capacity from plan nodes, sandbox commands, and verification checks. Large histories use keyset pagination and streaming export.
+
+Do not prune an active, queued, verifying, or recoverable execution. Keep failure and cancellation evidence through investigation; keep approval, review digest, patch, verification, and publication evidence while the associated artifact or policy requires it. Existing artifact storage is not an event archive: it cannot currently prove complete, authorized, replayable timeline recovery. Any future archive or deletion design needs explicit per-tenant policy, legal and operational review, bounded dry-run, concurrency control, audit records of the decision, and tests for recovery, retries, and protected artifacts before it is enabled. Until then, retain evidence rather than claiming a safe cleanup mechanism. No hosted Forge service, model provider, or GitHub publication is validated by this feature's local tests.
+
+## External validation still required
+
+- **Model provider:** Configure a provider, model, and encrypted key in workspace settings; set `ENCRYPTION_KEY` on every process that decrypts it. Planning calls LiteLLM with that key, stores the response in the existing restricted interaction table, and links safe metadata to the timeline when execution is queued. Token counts and spend are estimates. No explicit LiteLLM timeout or retry policy is set in Forge. Validate one authorized call, provider failure, latency, and secret redaction using a dedicated test account before relying on live model evidence. Do not run a paid call as part of local tests.
+- **GitHub publication:** Configure OAuth credentials and callback as described in `DEPLOYMENT.md`. Confirm the approving user still has workspace permission and GitHub push access. Publication checks the latest passing verification, base commit, reviewed digest, dedicated branch, and existing PR before reuse. Its local tests mock GitHub; no external repository or pull request has been modified for Flight Recorder validation.
+- **Hosted Docker worker:** Build and run the worker image on a Docker-capable host with the approved sandbox images, Docker socket access, private workspace storage, and the same database, Redis, `SECRET_KEY`, and `ENCRYPTION_KEY` configuration as the API. Verify network/TLS access, lease heartbeats, a sandbox command, event persistence, crash recovery, timeline retrieval after restart, and browser/API access to the resulting execution. A Vercel frontend or ordinary Render web service cannot host this worker. No hosted worker or end-to-end deployment has passed this checklist.

@@ -240,13 +240,13 @@ FastAPI exposes OpenAPI documentation at `/docs`. Major route groups include:
 
 | Route | Responsibility |
 | --- | --- |
-| `GET /health` | Process health and runtime resource summary. |
+| `GET /health` | Public process liveness and application version. |
 | `GET /ready` | PostgreSQL and Redis readiness. |
 | `/api/v1/auth/*` | GitHub OAuth, sessions, current user, and provider settings. |
 | `/api/v1/repositories/*` | Repository import and listing. |
 | `/api/v1/memory/*` | Index jobs and stored symbols. |
 | `/api/v1/plans/*` | Plan creation, approval, revision, and listing. |
-| `/api/v1/executions/*` | Execution jobs, logs, and mutations. |
+| `/api/v1/executions/*` | Execution jobs, logs, mutations, and [Flight Recorder](docs/FLIGHT_RECORDER.md) history. |
 | `/api/v1/verifications/*` | Verification results and bounded repair proposals. |
 | `/api/v1/patches/*` | Diff review, exact-digest approval, and explicit GitHub contribution requests. |
 | `/api/v1/context/*` | Context snapshots and agent interactions. |

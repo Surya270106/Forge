@@ -21,7 +21,7 @@ from services.auth.dependencies import require_permission
 async def create_plan(
     repository_id: UUID,
     request: CreatePlanRequest,
-    organization_id: OrganizationId = Depends(require_permission("plan:create")),
+    organization_id: OrganizationId = Depends(require_permission("plan:create", rate_category="model")),
     session: AsyncSession = Depends(get_session),
 ):
     service = PlanningService(session, organization_id)
@@ -79,7 +79,7 @@ from .schemas import RevisePlanRequest
 async def revise_plan(
     plan_id: UUID,
     request: RevisePlanRequest,
-    organization_id: OrganizationId = Depends(require_permission("plan:create")),
+    organization_id: OrganizationId = Depends(require_permission("plan:create", rate_category="model")),
     session: AsyncSession = Depends(get_session),
 ):
     service = PlanningService(session, organization_id)

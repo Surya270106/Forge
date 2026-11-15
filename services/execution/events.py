@@ -46,6 +46,14 @@ def create_execution_requested_event(org_id: UUID, repo_id: UUID, exec_id: UUID,
     return _execution_event("execution.requested", org_id, repo_id, exec_id, plan_id)
 
 
+def create_execution_cancel_requested_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
+    return _execution_event("execution.cancel_requested", org_id, repo_id, exec_id, plan_id)
+
+
+def create_execution_cancelled_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
+    return _execution_event("execution.cancelled", org_id, repo_id, exec_id, plan_id)
+
+
 def create_execution_started_event(org_id: UUID, repo_id: UUID, exec_id: UUID, plan_id: UUID) -> EventEnvelope:
     return _execution_event("execution.started", org_id, repo_id, exec_id, plan_id)
 

@@ -1,3 +1,4 @@
+import time
 from typing import Any
 from uuid import UUID
 
@@ -123,7 +124,6 @@ class AgentOrchestrator:
 
         # 5. Invoke LLM (Real Implementation using LiteLLM)
         from litellm import ModelResponse, acompletion
-        from litellm.exceptions import APIConnectionError, APIError, RateLimitError
 
         from packages.database.models.auth import OrganizationModel
         from packages.shared.crypto import CryptoService
@@ -135,7 +135,7 @@ class AgentOrchestrator:
         # If the model name doesn't include the provider, we can format it.
         provider = provider_config.get("provider", "openai").lower()
         base_model_name = provider_config.get("model", "gpt-4o")
-        
+
         # Format model string for litellm if it's not already prefixed
         if "/" not in base_model_name and provider != "openai":
             model_name = f"{provider}/{base_model_name}"
@@ -155,6 +155,7 @@ class AgentOrchestrator:
             raise ConflictError("provider_not_configured", "Configure a model provider before creating a plan", ErrorCategory.CONFLICT)
         else:
             try:
+                model_started_at = time.monotonic()
                 # Set the API key dynamically for this request
                 # LiteLLM automatically handles mapping the api key to the right header
                 # We can pass `api_key` directly to acompletion
@@ -164,13 +165,12 @@ class AgentOrchestrator:
                     api_key=api_key,
                     response_format={"type": "json_object"} if "openai" in provider or "groq" in provider else None,
                 )
-            except (APIError, APIConnectionError, RateLimitError) as e:
-                raise Exception(f"LLM API Error: {str(e)}")
-            except Exception as e:
-                raise Exception(f"Unexpected error calling litellm: {str(e)}")
+            except Exception:
+                raise ConflictError("provider_unavailable", "Model provider request failed; retry later", ErrorCategory.CONFLICT) from None
             if not isinstance(response, ModelResponse) or not response.choices:
                 raise ConflictError("provider_invalid_response", "Model provider returned an invalid response", ErrorCategory.CONFLICT)
             response_text = response.choices[0].message.content or ""
+            latency_ms = int((time.monotonic() - model_started_at) * 1000)
 
         # 6. Save Interaction
         interaction = AgentInteractionModel(
@@ -184,7 +184,7 @@ class AgentOrchestrator:
             tool_calls=tool_calls,
             prompt_tokens=snapshot.tokens_estimated,
             completion_tokens=len(response_text) // 4,
-            latency_ms=1500,
+            latency_ms=latency_ms,
         )
         self.session.add(interaction)
 

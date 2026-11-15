@@ -31,7 +31,7 @@ from services.repository_memory.events import OutboxEventPublisher
 async def trigger_verification(
     execution_job_id: UUID,
     request: TriggerVerificationRequest,
-    organization_id: OrganizationId = Depends(require_permission("plan:approve")),
+    organization_id: OrganizationId = Depends(require_permission("plan:approve", rate_category="execution")),
     session: AsyncSession = Depends(get_session),
 ):
     dispatcher = VerificationDispatcher(session, organization_id)
@@ -122,7 +122,7 @@ async def get_repair_for_verification(
 @router.post("/repairs/{repair_id}/plan")
 async def request_repair_plan(
     repair_id: UUID,
-    organization_id: OrganizationId = Depends(require_permission("plan:create")),
+    organization_id: OrganizationId = Depends(require_permission("plan:create", rate_category="model")),
     user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

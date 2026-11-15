@@ -9,6 +9,8 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.database.models.atlas import AtlasSnapshotModel
+from packages.database.models.context_lens import ContextChangeSetModel
 from packages.database.models.execution import ExecutionJobModel, ExecutionStatus, MutationModel
 from packages.database.models.patch import PatchModel, PatchStatus
 from packages.database.models.repository import RepositoryModel
@@ -16,6 +18,8 @@ from packages.database.models.verification import RepairAttemptModel, Verificati
 from packages.shared.config import get_settings
 from packages.shared.errors import ConflictError, ErrorCategory, NotFoundError
 from packages.shared.identifiers import generate_id
+from services.context_lens.service import capture_file_changes
+from services.execution.flight_recorder import record_event
 
 logger = structlog.get_logger(__name__)
 
@@ -26,12 +30,19 @@ class PatchService:
         self.organization_id = organization_id
         self.settings = settings or get_settings()
 
-    async def generate_patch(self, execution_job_id: UUID) -> PatchModel:
-        exec_job = await self.session.get(ExecutionJobModel, execution_job_id)
+    async def generate_patch(self, execution_job_id: UUID, *, commit: bool = True) -> PatchModel:
+        exec_job = (
+            await self.session.execute(
+                select(ExecutionJobModel).where(ExecutionJobModel.id == execution_job_id)
+                .with_for_update().execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         if not exec_job or exec_job.organization_id != self.organization_id:
             raise NotFoundError("execution_not_found", "Execution job not found", ErrorCategory.NOT_FOUND)
         if exec_job.status != ExecutionStatus.COMPLETED:
             raise ConflictError("execution_not_complete", "Execution must complete before patch review", ErrorCategory.CONFLICT)
+        if exec_job.cancellation_requested_at:
+            raise ConflictError("execution_cancellation_requested", "Verification cancellation is pending", ErrorCategory.CONFLICT)
         repo = await self.session.get(RepositoryModel, exec_job.repository_id)
         if not repo or repo.organization_id != self.organization_id or not repo.commit_sha:
             raise ConflictError("repository_base_missing", "Imported repository base commit is unavailable", ErrorCategory.CONFLICT)
@@ -44,7 +55,8 @@ class PatchService:
 
         # Fetch mutations
         mutations = await self._mutations_for_execution(execution_job_id)
-        digest = self._review_digest(repo.commit_sha, mutations)
+        digest = self._review_digest(exec_job.commit_sha_before, mutations)
+        file_changes = capture_file_changes(mutations)
 
         additions = 0
         deletions = 0
@@ -67,12 +79,28 @@ class PatchService:
             total_additions=additions,
             total_deletions=deletions,
             files_changed=files_changed,
-            base_commit_sha=repo.commit_sha,
+            base_commit_sha=exec_job.commit_sha_before,
             review_digest=digest,
             publish_status="NOT_REQUESTED",
         )
         self.session.add(patch)
-        await self.session.commit()
+        base_snapshot_id = (await self.session.execute(select(AtlasSnapshotModel.id).where(
+            AtlasSnapshotModel.organization_id == self.organization_id,
+            AtlasSnapshotModel.repository_id == exec_job.repository_id,
+            AtlasSnapshotModel.commit_sha == exec_job.commit_sha_before,
+            AtlasSnapshotModel.dirty.is_(False), AtlasSnapshotModel.status == "PUBLISHED",
+        ).order_by(AtlasSnapshotModel.completed_at.desc()).limit(1))).scalar_one_or_none()
+        self.session.add(ContextChangeSetModel(
+            organization_id=self.organization_id, repository_id=exec_job.repository_id,
+            execution_job_id=execution_job_id, patch_id=patch.id, base_snapshot_id=base_snapshot_id,
+            base_commit_sha=exec_job.commit_sha_before, review_digest=digest,
+            file_changes=file_changes, schema_version=1, created_at=datetime.now(UTC),
+        ))
+        await record_event(self.session, self.organization_id, execution_job_id, "patch.created", "system", "patch.service",
+                           data={"patch_id": patch.id, "review_digest": digest, "file_count": files_changed},
+                           idempotency_key=f"patch-created-{patch.id}")
+        if commit:
+            await self.session.commit()
         return patch
 
     @staticmethod
@@ -162,6 +190,9 @@ class PatchService:
         patch.status = PatchStatus.ACCEPTED
         patch.reviewed_at = datetime.now(UTC)
         patch.reviewed_by = user_id
+        await record_event(self.session, self.organization_id, patch.execution_job_id, "patch.approved", "user", "patch.service",
+                           actor_id=str(user_id), data={"patch_id": patch.id, "review_digest": patch.review_digest},
+                           idempotency_key=f"patch-approved-{patch.id}")
         await self.session.commit()
 
         # Approval records the review decision only. Branch pushes and pull request
@@ -197,6 +228,30 @@ class PatchService:
         review = await self.review_patch(patch_id)
         if review["review_digest"] != patch.review_digest:
             raise ConflictError("stale_patch", "Patch changed after approval", ErrorCategory.CONFLICT)
+        from packages.database.models.execution import ExecutionJobModel
+        from services.safety.policy import decide
+        from services.safety.service import as_document, current_policy, from_document
+
+        execution = await self.session.get(ExecutionJobModel, patch.execution_job_id)
+        if not execution or execution.organization_id != self.organization_id:
+            raise ConflictError("execution_unavailable", "Patch execution is unavailable", ErrorCategory.CONFLICT)
+        current = await current_policy(self.session, self.organization_id)
+        if execution.safety_policy_snapshot is None:
+            execution.safety_policy_snapshot = as_document(current)
+        decision = decide("patch_publish", str(patch.id), from_document(execution.safety_policy_snapshot), current,
+                          repository_id=patch.repository_id)
+        if decision.effect == "DENY":
+            await record_event(self.session, self.organization_id, execution.id, "safety.permission_denied", "system",
+                               "safety.policy", data={"capability": "patch:publish", "decision": "DENY",
+                                                      "policy_version": current.version, "reason_code": decision.reason},
+                               idempotency_key=f"safety-publish-denied-{patch.id}-{current.version}")
+            await self.session.commit()
+            raise ConflictError("safety_policy_denied", "Safety Gate blocks publication", ErrorCategory.CONFLICT)
+        await record_event(self.session, self.organization_id, execution.id, "safety.permission_granted", "user",
+                           "safety.policy", actor_id=str(user_id),
+                           data={"capability": "patch:publish", "decision": "ALLOW", "policy_version": current.version,
+                                 "review_digest": patch.review_digest},
+                           idempotency_key=f"safety-publish-requested-{patch.id}")
         patch.branch_name = f"forge/{patch.id.hex}"
         patch.publish_status = "QUEUED"
         patch.publish_error = None
@@ -221,6 +276,9 @@ class PatchService:
         patch.status = PatchStatus.REJECTED
         patch.reviewed_at = datetime.now(UTC)
         patch.reviewed_by = user_id
+        await record_event(self.session, self.organization_id, patch.execution_job_id, "patch.rejected", "user", "patch.service",
+                           actor_id=str(user_id) if user_id else None, data={"patch_id": patch.id},
+                           idempotency_key=f"patch-rejected-{patch.id}")
         await self.session.commit()
         return patch
 

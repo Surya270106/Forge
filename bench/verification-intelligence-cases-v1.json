@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "Synthetic Atlas and verifier evidence fixtures; never included in the scored coding-agent dataset.",
+  "verifiers": [
+    {"id": "focused", "target": "tests/test_a.py"},
+    {"id": "unrelated", "target": "tests/test_b.py"}
+  ],
+  "cases": [
+    {"id": "direct-function-edit", "changes": [{"path": "src/a.py", "type": "modified"}], "base_paths": ["src/a.py"], "snapshot": "base", "associations": [{"path": "tests/test_a.py", "source_path": "src/a.py", "depth": 1, "confidence": "HIGH", "relationship": "CALLS"}], "expected_selected": ["focused"], "expected_reasons": [], "expected_test": "tests/test_a.py"},
+    {"id": "downstream-dependency", "changes": [{"path": "src/a.py", "type": "modified"}], "base_paths": ["src/a.py"], "snapshot": "base", "associations": [{"path": "tests/test_a.py", "source_path": "src/a.py", "depth": 2, "confidence": "MEDIUM", "relationship": "IMPORTS"}], "expected_selected": ["focused"], "expected_reasons": [], "expected_test": "tests/test_a.py"},
+    {"id": "inferred-test-association", "changes": [{"path": "src/a.py", "type": "modified"}], "base_paths": ["src/a.py"], "snapshot": "base", "associations": [{"path": "tests/test_a.py", "source_path": "src/a.py", "depth": 1, "confidence": "LOW", "relationship": "TESTS"}], "expected_selected": ["focused", "unrelated"], "expected_reasons": ["LOW_CONFIDENCE_TEST_MAPPING"], "expected_test": "tests/test_a.py"},
+    {"id": "missing-graph", "changes": [{"path": "src/a.py", "type": "modified"}], "base_paths": [], "snapshot": null, "associations": [], "expected_selected": ["focused", "unrelated"], "expected_reasons": ["MISSING_BASE_GRAPH", "NO_TEST_MAPPING"], "expected_test": null},
+    {"id": "newly-introduced-code", "changes": [{"path": "src/new.py", "type": "added"}], "base_paths": [], "snapshot": "base", "associations": [], "expected_selected": ["focused", "unrelated"], "expected_reasons": ["NEW_OR_DELETED_CODE", "NO_TEST_MAPPING"], "expected_test": null},
+    {"id": "migration-security-change", "changes": [{"path": "migrations/versions/add_auth.py", "type": "modified"}], "base_paths": ["migrations/versions/add_auth.py"], "snapshot": "base", "associations": [{"path": "tests/test_a.py", "source_path": "migrations/versions/add_auth.py", "depth": 1, "confidence": "MEDIUM", "relationship": "TESTS"}], "expected_selected": ["focused", "unrelated"], "expected_reasons": ["CROSS_CUTTING_CHANGE"], "expected_test": "tests/test_a.py"},
+    {"id": "unchanged-unrelated-test", "changes": [{"path": "tests/test_a.py", "type": "modified"}], "base_paths": ["tests/test_a.py"], "snapshot": "base", "associations": [], "expected_selected": ["focused"], "expected_reasons": [], "expected_test": "tests/test_a.py"},
+    {"id": "patch-digest-mismatch", "changes": [{"path": "tests/test_a.py", "type": "modified"}], "base_paths": ["tests/test_a.py"], "snapshot": "base", "associations": [], "expected_selected": ["focused"], "expected_reasons": [], "expected_test": "tests/test_a.py", "captured_digest": "0000000000000000000000000000000000000000000000000000000000000000"}
+  ]
+}

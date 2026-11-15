@@ -17,6 +17,7 @@ from packages.shared.config import get_settings
 from packages.shared.identifiers import generate_id
 from services.auth.dependencies import get_current_user, require_permission
 from services.auth.jwt import create_access_token
+from services.auth.rate_limit import limit_ip, limit_user
 from packages.database.tenant import clear_tenant, set_tenant
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -29,7 +30,7 @@ GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 from datetime import UTC, datetime
 
 
-@router.get("/github/login")
+@router.get("/github/login", dependencies=[Depends(limit_ip("auth"))])
 async def github_login(session: AsyncSession = Depends(get_session)):
     settings = get_settings()
     if not settings.github_client_id:
@@ -48,7 +49,7 @@ async def github_login(session: AsyncSession = Depends(get_session)):
     redirect_uri = f"{GITHUB_OAUTH_URL}?client_id={settings.github_client_id}&scope=user:email repo&state={state}"
     return {"url": redirect_uri}
 
-@router.get("/github/callback")
+@router.get("/github/callback", dependencies=[Depends(limit_ip("auth"))])
 async def github_callback(code: str, state: str, request: Request, session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import OAuthStateModel, SessionModel
 
@@ -161,7 +162,7 @@ async def github_callback(code: str, state: str, request: Request, session: Asyn
         await redis_client.aclose()
 
     frontend_url = settings.frontend_url.rstrip("/")
-    redirect_url = f"{frontend_url}/login/callback?code={exchange_code}"
+    redirect_url = f"{frontend_url}/login/callback?code={exchange_code}&state={state}"
 
     response = RedirectResponse(url=redirect_url)
     return response
@@ -171,7 +172,7 @@ class LoginExchangeRequest(BaseModel):
     code: str
 
 
-@router.post("/github/exchange")
+@router.post("/github/exchange", dependencies=[Depends(limit_ip("auth"))])
 async def github_exchange(request: LoginExchangeRequest, http_request: Request):
     # Exchange codes are redeemed by the frontend server. Browser-origin
     # requests must not receive a bearer token as a JSON response.
@@ -188,7 +189,7 @@ async def github_exchange(request: LoginExchangeRequest, http_request: Request):
         raise HTTPException(status_code=400, detail="Login exchange expired or already used")
     return json.loads(payload)
 
-@router.post("/logout")
+@router.post("/logout", dependencies=[Depends(limit_user("auth"))])
 async def logout(request: Request, user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import SessionModel
     from services.auth.jwt import decode_access_token
@@ -209,7 +210,7 @@ async def logout(request: Request, user: dict = Depends(get_current_user), sessi
     await session.commit()
     return {"status": "signed_out"}
 
-@router.get("/sessions")
+@router.get("/sessions", dependencies=[Depends(limit_user("auth"))])
 async def list_sessions(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import SessionModel
     stmt = select(SessionModel).where(
@@ -228,7 +229,7 @@ async def list_sessions(user: dict = Depends(get_current_user), session: AsyncSe
         })
     return {"sessions": sessions}
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", dependencies=[Depends(limit_user("auth"))])
 async def revoke_session(session_id: str, user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     from packages.database.models.auth import SessionModel
     stmt = select(SessionModel).where(
@@ -327,7 +328,7 @@ async def update_provider_config(request: Request, org_id: UUID = Depends(requir
     return {"status": "updated"}
 
 @router.post("/workspaces/current/provider/test")
-async def test_provider_config(request: Request, org_id: UUID = Depends(require_permission("workspace:settings:write")), session: AsyncSession = Depends(get_session)):
+async def test_provider_config(request: Request, org_id: UUID = Depends(require_permission("workspace:settings:write", rate_category="model")), session: AsyncSession = Depends(get_session)):
 
     from packages.shared.crypto import CryptoService
 

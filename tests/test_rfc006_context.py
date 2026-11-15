@@ -156,6 +156,21 @@ async def test_invalid_provider_response_does_not_create_interaction(mock_sessio
     mock_session.commit.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_provider_error_does_not_expose_credentials(mock_session, org_id, repo_id):
+    orchestrator = AgentOrchestrator(mock_session, org_id)
+    orchestrator.assembler.assemble_context = AsyncMock(return_value={"query": "help", "symbols": [], "files": []})
+    mock_session.get = AsyncMock(return_value=SimpleNamespace(provider_config={"provider": "openai", "model": "test-model", "api_key": "encrypted"}))
+    with (
+        mock_patch("packages.shared.crypto.CryptoService.decrypt", return_value="test-secret"),
+        mock_patch("litellm.acompletion", new=AsyncMock(side_effect=RuntimeError("provider echoed test-secret"))),
+        pytest.raises(ConflictError) as captured,
+    ):
+        await orchestrator.invoke_agent(repo_id, "help", "test_template")
+    assert "test-secret" not in str(captured.value)
+    mock_session.commit.assert_not_awaited()
+
+
 def test_prompt_manager_jinja2_missing_variable():
     template = "Hello {{ missing_var }}"
     context = {}

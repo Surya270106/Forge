@@ -56,6 +56,12 @@ def create_verification_started_event(org_id: UUID, repo_id: UUID, job_id: UUID,
     )
 
 
+def create_verification_cancelled_event(org_id: UUID, repo_id: UUID, job_id: UUID, exec_id: UUID) -> EventEnvelope:
+    return create_verification_requested_event(org_id, repo_id, job_id, exec_id).model_copy(
+        update={"event_type": "verification.cancelled"}
+    )
+
+
 def create_verification_completed_event(org_id: UUID, repo_id: UUID, job_id: UUID, passed: bool) -> EventEnvelope:
     return EventEnvelope(
         event_type="verification.completed",

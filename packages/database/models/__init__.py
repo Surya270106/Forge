@@ -1,4 +1,7 @@
 from .audit import AuditLogModel
+from .atlas import AtlasEdgeModel, AtlasFileFactModel, AtlasJobModel, AtlasNodeModel, AtlasSnapshotModel
+from .context_lens import ContextChangeSetModel
+from .bench import BenchmarkRunModel, BenchmarkTrialModel
 from .auth import (
     OrganizationModel,
     RoleBindingModel,
@@ -11,6 +14,7 @@ from .context import (
     PromptTemplateModel,
 )
 from .execution import (
+    ExecutionEventModel,
     ExecutionJobModel,
     ExecutionLogModel,
     ExecutionStatus,
@@ -30,6 +34,7 @@ from .memory import (
     SymbolReferenceModel,
 )
 from .outbox_event import OutboxEventModel
+from .issue_workflow import IssueWorkflowModel
 from .patch import PatchModel, PatchStatus
 from .planning import (
     PlanModel,
@@ -42,6 +47,8 @@ from .repository import RepositoryModel, RepositoryStatus
 from .repository_file import RepositoryFileModel
 from .repository_language import RepositoryLanguageModel
 from .repository_manifest import RepositoryManifestModel
+from .run_capsule import RunCapsuleArtifactModel, RunCapsuleModel
+from .safety import SafetyPolicyModel
 from .verification import (
     RepairAttemptModel,
     RepairAttemptStatus,
@@ -49,6 +56,7 @@ from .verification import (
     VerificationResultModel,
     VerificationStatus,
 )
+from .verification_intelligence import VerificationPlanModel
 
 __all__ = [
     "RepositoryModel",
@@ -75,6 +83,7 @@ __all__ = [
     "TaskNodeModel",
     "TaskEdgeModel",
     "ExecutionStatus",
+    "ExecutionEventModel",
     "ExecutionJobModel",
     "ExecutionLogModel",
     "MutationModel",
@@ -82,6 +91,9 @@ __all__ = [
     "RepairAttemptStatus",
     "VerificationJobModel",
     "VerificationResultModel",
+    "VerificationPlanModel",
+    "RunCapsuleModel",
+    "RunCapsuleArtifactModel",
     "RepairAttemptModel",
     "ModelProvider",
     "PromptTemplateModel",
@@ -91,6 +103,16 @@ __all__ = [
     "UserModel",
     "RoleBindingModel",
     "AuditLogModel",
+    "AtlasJobModel",
+    "AtlasSnapshotModel",
+    "AtlasFileFactModel",
+    "AtlasNodeModel",
+    "AtlasEdgeModel",
+    "ContextChangeSetModel",
+    "BenchmarkRunModel",
+    "BenchmarkTrialModel",
+    "SafetyPolicyModel",
     "PatchModel",
     "PatchStatus",
+    "IssueWorkflowModel",
 ]

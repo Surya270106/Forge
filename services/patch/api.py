@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/v1/patches", tags=["patch"])
 @router.post("/executions/{execution_job_id}/generate", response_model=PatchResponse)
 async def generate_patch(
     execution_job_id: UUID,
-    organization_id: OrganizationId = Depends(require_permission("patch:approve")),
+    organization_id: OrganizationId = Depends(require_permission("patch:approve", rate_category="patch")),
     session: AsyncSession = Depends(get_session),
 ):
     service = PatchService(session, organization_id)
@@ -52,7 +52,7 @@ async def get_patch_for_execution(
 async def accept_patch(
     patch_id: UUID,
     request: AcceptPatchRequest,
-    organization_id: OrganizationId = Depends(require_permission("patch:approve")),
+    organization_id: OrganizationId = Depends(require_permission("patch:approve", rate_category="patch")),
     user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -87,7 +87,7 @@ async def get_patch(
 @router.post("/{patch_id}/publish", response_model=PatchResponse)
 async def publish_patch(
     patch_id: UUID,
-    organization_id: OrganizationId = Depends(require_permission("patch:approve")),
+    organization_id: OrganizationId = Depends(require_permission("patch:approve", rate_category="patch")),
     user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

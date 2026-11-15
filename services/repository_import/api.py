@@ -18,12 +18,13 @@ router = APIRouter(prefix="/api/v1/repositories", tags=["Repositories"])
 logger = structlog.get_logger(__name__)
 
 from services.auth.dependencies import get_current_user, require_github_token, require_permission
+from services.auth.rate_limit import limit_user
 
 
 @router.post("/import", response_model=ImportRepositoryResponse, status_code=status.HTTP_202_ACCEPTED)
 async def import_repository(
     request: ImportRepositoryRequest,
-    organization_id: UUID = Depends(require_permission("repo:import")),
+    organization_id: UUID = Depends(require_permission("repo:import", rate_category="repository")),
     user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -43,10 +44,11 @@ async def import_repository(
     if remote.status_code != 200:
         raise HTTPException(status_code=503, detail="GitHub could not confirm repository access")
     metadata = remote.json()
+    github_repository_id = metadata.get("id")
     owner = metadata.get("owner", {}).get("login")
     name = metadata.get("name")
     permissions = metadata.get("permissions") or {}
-    if not isinstance(owner, str) or not isinstance(name, str) or not permissions.get("pull"):
+    if not isinstance(owner, str) or not isinstance(name, str) or not permissions.get("pull") or type(github_repository_id) is not int or github_repository_id <= 0:
         raise HTTPException(status_code=403, detail="GitHub did not confirm repository read access")
     if f"{owner}/{name}".casefold() != f"{request.owner}/{request.name}".casefold():
         raise HTTPException(status_code=400, detail="Repository identity changed; select it again")
@@ -57,6 +59,7 @@ async def import_repository(
     verified_request = request.model_copy(update={
         "owner": owner, "name": name, "clone_url": canonical,
         "branch": branch, "is_private": bool(metadata.get("private")),
+        "github_repository_id": github_repository_id,
     })
     service = RepositoryService(session)
     try:
@@ -118,7 +121,7 @@ async def list_imported_repositories(organization_id: UUID = Depends(require_per
     }
 
 
-@router.get("/github-repos")
+@router.get("/github-repos", dependencies=[Depends(limit_user("repository"))])
 async def list_github_repositories(user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     token = await require_github_token(user, session)
 

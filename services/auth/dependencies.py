@@ -84,14 +84,19 @@ async def get_tenant_context(
     # It acts exactly like a viewer role check for the organization.
     return await _verify_and_set_tenant(request, x_organization_id, user, session, None)
 
-def require_permission(action: str):
+def require_permission(action: str, *, rate_category: str | None = None):
     async def permission_checker(
         request: Request,
         x_organization_id: str | None = Header(None, alias="X-Organization-Id"),
         user: dict = Depends(get_current_user),
         session: AsyncSession = Depends(get_session),
     ) -> OrganizationId:
-        return await _verify_and_set_tenant(request, x_organization_id, user, session, action)
+        org_id = await _verify_and_set_tenant(request, x_organization_id, user, session, action)
+        if rate_category:
+            from services.auth.rate_limit import enforce_rate_limit
+
+            await enforce_rate_limit(rate_category, [("user", user["id"]), ("organization", str(org_id))])
+        return org_id
     return permission_checker
 
 async def _verify_and_set_tenant(

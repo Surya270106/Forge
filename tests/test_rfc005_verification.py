@@ -16,6 +16,12 @@ from services.verification.registry import VerifierDefinition
 from services.verification.service import VerificationDispatcher
 
 
+@pytest.fixture(autouse=True)
+def mock_flight_recorder():
+    with patch("services.verification.service.record_event", new=AsyncMock()):
+        yield
+
+
 @pytest.fixture
 def org_id():
     return generate_id()
@@ -42,6 +48,7 @@ def mock_session(org_id, exec_id):
         repository_id=generate_id(),
         plan_id=generate_id(),
         status=ExecutionStatus.COMPLETED,
+        lease_generation=0,
     )
 
     def mock_get(model, id):
@@ -67,9 +74,15 @@ def mock_session(org_id, exec_id):
 @pytest.mark.asyncio
 async def test_trigger_verification(mock_session, org_id, exec_id):
     dispatcher = VerificationDispatcher(mock_session, org_id)
-    mock_session.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: None)
+    execution = await mock_session.get(ExecutionJobModel, exec_id)
+    mock_session.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: execution),
+        SimpleNamespace(scalar_one_or_none=lambda: None),
+        SimpleNamespace(scalar_one_or_none=lambda: None),
+    ]
 
-    job = await dispatcher.trigger_verification(exec_id)
+    with patch("services.verification.service.PatchService._mutations_for_execution", new=AsyncMock(return_value=[])):
+        job = await dispatcher.trigger_verification(exec_id)
 
     assert job.status == VerificationStatus.PENDING
     assert job.execution_job_id == exec_id
@@ -92,6 +105,7 @@ async def test_run_verification_failure_triggers_repair(mock_sandbox_class, mock
     job = await mock_session.get(VerificationJobModel, job_id)
     mock_session.execute.side_effect = [
         SimpleNamespace(scalar_one_or_none=lambda: job),
+        SimpleNamespace(scalar_one_or_none=lambda: None),
         SimpleNamespace(scalar_one=lambda: job),
         SimpleNamespace(scalar_one_or_none=lambda: None),
         SimpleNamespace(scalar_one_or_none=lambda: None),
@@ -142,6 +156,7 @@ async def test_no_configured_verifiers_is_not_reported_as_passed(mock_sandbox_cl
     job = await mock_session.get(VerificationJobModel, job_id)
     mock_session.execute.side_effect = [
         SimpleNamespace(scalar_one_or_none=lambda: job),
+        SimpleNamespace(scalar_one_or_none=lambda: None),
         SimpleNamespace(scalar_one_or_none=lambda: None),
     ]
 

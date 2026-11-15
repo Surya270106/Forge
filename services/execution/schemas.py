@@ -17,10 +17,18 @@ class ExecutionJobResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_message: str | None
+    cancellation_requested_at: datetime | None = None
+    cancellation_requested_by: UUID | None = None
 
     class Config:
         from_attributes = True
 
+
+class CancelExecutionResponse(BaseModel):
+    id: UUID
+    status: ExecutionStatus
+    cancellation_status: str
+    cancellation_requested_at: datetime | None
 
 class ExecutionLogResponse(BaseModel):
     id: UUID

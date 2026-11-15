@@ -146,6 +146,7 @@ async def test_oauth_onboarding_and_workspace_discovery_with_restricted_role(mon
                 assert role == (False, False)
                 response = await auth_api.github_callback("mocked-code", state, request, session)
                 assert response.status_code == 307
+                assert f"state={state}" in response.headers["location"]
                 token = captured[-1]["token"]
                 claims = decode_access_token(token)
                 assert claims is not None

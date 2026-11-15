@@ -21,6 +21,7 @@ class RepositoryModel(IdMixin, TimestampMixin, Base):
     __tablename__ = "repositories"
     __table_args__ = (
         Index("ix_repositories_owner_name", "organization_id", "owner", "name", unique=True),
+        Index("ix_repositories_github_id", "organization_id", "github_repository_id", unique=True),
         Index("ix_repositories_status", "status"),
         Index("ix_repositories_org", "organization_id"),
     )
@@ -29,6 +30,7 @@ class RepositoryModel(IdMixin, TimestampMixin, Base):
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    github_repository_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     clone_url: Mapped[str] = mapped_column(Text, nullable=False)
     default_branch: Mapped[str] = mapped_column(String(255), default="main")
     status: Mapped[RepositoryStatus] = mapped_column(

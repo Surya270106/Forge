@@ -64,12 +64,10 @@ async def test_git_client_isolation(workspace_root):
     sandbox = LocalProcessSandbox(workspace_root)
     git = GitClient(sandbox)
 
-    # Config git temporarily to avoid author errors in test
-    await sandbox.run_command(["git", "config", "--global", "user.email", "test@forge.com"])
-    await sandbox.run_command(["git", "config", "--global", "user.name", "Test"])
-
     init_res = await git.init()
     assert init_res.exit_code == 0
+    assert (await sandbox.run_command(["git", "config", "user.email", "test@forge.com"])).exit_code == 0
+    assert (await sandbox.run_command(["git", "config", "user.name", "Test"])).exit_code == 0
 
     # Add a file
     await sandbox.write_file("code.py", b"print('V1')")

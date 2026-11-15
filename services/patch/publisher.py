@@ -14,17 +14,48 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.models.auth import RoleBindingModel, UserModel
+from packages.database.models.execution import ExecutionJobModel
+from packages.database.models.issue_workflow import IssueWorkflowModel
 from packages.database.models.patch import PatchModel, PatchStatus
 from packages.database.models.repository import RepositoryModel
-from packages.database.models.verification import VerificationJobModel, VerificationStatus
+from packages.database.models.verification import RepairAttemptModel, VerificationJobModel, VerificationResultModel, VerificationStatus
 from packages.shared.config import get_settings
 from packages.shared.crypto import CryptoService
 from packages.shared.errors import ConflictError, NotFoundError
 from services.auth.permissions import has_permission
+from services.execution.flight_recorder import record_event
+from services.safety.policy import decide
+from services.safety.service import as_document, current_policy, from_document
 
 from .service import PatchService
 
 logger = structlog.get_logger(__name__)
+
+
+async def _issue_workflow_for_execution(session: AsyncSession, organization_id: UUID,
+                                        execution: ExecutionJobModel) -> IssueWorkflowModel | None:
+    current = execution
+    for _ in range(4):
+        workflow = (await session.execute(select(IssueWorkflowModel).where(
+            IssueWorkflowModel.organization_id == organization_id,
+            IssueWorkflowModel.plan_id == current.plan_id,
+        ))).scalar_one_or_none()
+        if workflow:
+            return workflow
+        repair = (await session.execute(select(RepairAttemptModel).where(
+            RepairAttemptModel.organization_id == organization_id,
+            RepairAttemptModel.repair_execution_id == current.id,
+        ))).scalar_one_or_none()
+        if not repair:
+            return None
+        prior_verification = await session.get(VerificationJobModel, repair.verification_job_id)
+        if not prior_verification or prior_verification.organization_id != organization_id:
+            return None
+        prior = await session.get(ExecutionJobModel, prior_verification.execution_job_id)
+        if not prior or prior.organization_id != organization_id or prior.repository_id != execution.repository_id:
+            return None
+        current = prior
+    return None
 
 
 class ContributionError(Exception):
@@ -83,6 +114,8 @@ class PatchPublisher:
                 await client.aclose()
         if allow_404 and response.status_code == 404:
             return None
+        if response.status_code == 429:
+            raise ContributionError("GITHUB_RATE_LIMIT", "GitHub rate limit reached; retry after it resets")
         if response.status_code in (401, 403):
             code = "GITHUB_RATE_LIMIT" if response.headers.get("x-ratelimit-remaining") == "0" else "GITHUB_ACCESS_DENIED"
             raise ContributionError(code, "GitHub denied access; reconnect GitHub or check repository permissions")
@@ -106,7 +139,35 @@ class PatchPublisher:
         if patch.publish_status not in {"QUEUED", "RUNNING"} or patch.status not in {PatchStatus.ACCEPTED, PatchStatus.COMMITTED}:
             raise ContributionError("PATCH_NOT_READY", "Patch is not approved for publication")
 
+        execution = await self.session.get(ExecutionJobModel, patch.execution_job_id)
+        if not execution or execution.organization_id != self.organization_id:
+            raise ContributionError("EXECUTION_UNAVAILABLE", "Patch execution is unavailable")
+        if execution.safety_policy_snapshot is None:
+            execution.safety_policy_snapshot = as_document(await current_policy(self.session, self.organization_id))
+
+        async def require_publication_policy() -> None:
+            assert patch is not None and execution is not None
+            current = await current_policy(self.session, self.organization_id)
+            decision = decide("patch_publish", str(patch.id), from_document(execution.safety_policy_snapshot), current,
+                              repository_id=patch.repository_id)
+            if decision.effect == "DENY":
+                await record_event(self.session, self.organization_id, execution.id, "safety.permission_denied", "worker",
+                                   "safety.policy", data={"capability": "patch:publish", "decision": "DENY",
+                                                          "policy_version": current.version, "reason_code": decision.reason},
+                                   idempotency_key=f"safety-publish-worker-denied-{patch.id}-{current.version}")
+                raise ContributionError("SAFETY_POLICY_DENIED", "Safety Gate blocks publication")
+
+        try:
+            await require_publication_policy()
+        except ContributionError:
+            patch.publish_status = "FAILED"
+            patch.publish_error = "SAFETY_POLICY_DENIED"
+            await self.session.commit()
+            raise
+
         patch.publish_status = "RUNNING"
+        await record_event(self.session, self.organization_id, patch.execution_job_id, "patch.publication_started", "worker", "patch.publisher",
+                           data={"patch_id": patch.id}, idempotency_key=f"patch-publish-started-{patch.id}")
         try:
             user = await self.session.get(UserModel, requested_by)
             binding = (
@@ -163,6 +224,15 @@ class PatchPublisher:
                 raise ContributionError("GITHUB_BAD_RESPONSE", "GitHub returned invalid repository metadata")
             if metadata["full_name"].casefold() != repo.full_name.casefold() or not permissions.get("push") or metadata.get("archived"):
                 raise ContributionError("GITHUB_ACCESS_DENIED", "GitHub did not confirm push access to this repository")
+            workflow = await _issue_workflow_for_execution(self.session, self.organization_id, execution)
+            if workflow:
+                if (workflow.repository_id != repo.id or workflow.base_commit_sha != base_sha
+                        or metadata.get("id") != workflow.github_repository_id):
+                    raise ContributionError("ISSUE_IDENTITY_CHANGED", "Issue workflow repository or base changed")
+                issue = await self._github("GET", f"{api_root}/issues/{workflow.issue_number}", token)
+                if (not isinstance(issue, dict) or issue.get("id") != workflow.github_issue_id
+                        or issue.get("state") != "open" or "pull_request" in issue):
+                    raise ContributionError("ISSUE_CHANGED", "The linked GitHub issue is no longer open")
             base_branch = repo.default_branch
             if metadata.get("default_branch") != base_branch or not re.fullmatch(r"[A-Za-z0-9_./-]{1,200}", base_branch) or ".." in base_branch:
                 raise ContributionError("BASE_CHANGED", "The repository base branch changed; import it again")
@@ -249,6 +319,7 @@ class PatchPublisher:
                     if remote_tree.get("sha") != local_tree or parents != [base_sha]:
                         raise ContributionError("BRANCH_CONFLICT", "The dedicated GitHub branch contains different changes")
                 else:
+                    await require_publication_policy()
                     header = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
                     env = os.environ.copy()
                     env.update(
@@ -276,6 +347,18 @@ class PatchPublisher:
             )
             if not isinstance(existing, list):
                 raise ContributionError("GITHUB_BAD_RESPONSE", "GitHub returned invalid pull request results")
+            results = (await self.session.execute(select(VerificationResultModel).where(
+                VerificationResultModel.verification_job_id == verification.id,
+                VerificationResultModel.organization_id == self.organization_id,
+            ).order_by(VerificationResultModel.created_at).limit(20))).scalars().all()
+            checks = "\n".join(
+                f"- {result.verifier}: {result.status.value}"
+                for result in results if re.fullmatch(r"[A-Za-z0-9_. /-]{1,100}", result.verifier)
+            ) or "- No individual check results recorded"
+            body = (f"Reviewed Forge patch `{patch.id}`. Review digest: `{patch.review_digest}`.\n"
+                    f"Base: `{base_sha}`. Files changed: {len(review['changes'])}.\n"
+                    f"Verification job: {verification.status.value}.\n{checks}\n"
+                    + (f"\nFixes #{workflow.issue_number}." if workflow else ""))
             if existing:
                 pr = next(
                     (
@@ -289,19 +372,20 @@ class PatchPublisher:
                     raise ContributionError("PR_CONFLICT", "A matching pull request is closed or points to different changes")
             else:
                 try:
+                    await require_publication_policy()
                     pr = await self._github(
                         "POST",
                         f"{api_root}/pulls",
                         token,
                         payload={
-                            "title": f"Forge patch {patch.id.hex[:8]}",
+                            "title": f"Forge issue #{workflow.issue_number}" if workflow else f"Forge patch {patch.id.hex[:8]}",
                             "head": branch,
                             "base": base_branch,
-                            "body": f"Reviewed Forge patch `{patch.id}`. Review digest: `{patch.review_digest}`.",
+                            "body": body,
                         },
                     )
                 except ContributionError as error:
-                    if error.code not in {"GITHUB_UNAVAILABLE", "GITHUB_BAD_RESPONSE", "GITHUB_REQUEST_FAILED"}:
+                    if error.code not in {"GITHUB_UNAVAILABLE", "GITHUB_BAD_RESPONSE", "GITHUB_REQUEST_FAILED", "GITHUB_RATE_LIMIT"}:
                         raise
                     # The request may have succeeded even if its response was lost.
                     recovered = await self._github(
@@ -333,11 +417,17 @@ class PatchPublisher:
             patch.status = PatchStatus.PULL_REQUEST_CREATED
             patch.publish_status = "SUCCEEDED"
             patch.publish_error = None
+            await record_event(self.session, self.organization_id, patch.execution_job_id, "patch.published", "worker", "patch.publisher",
+                               data={"patch_id": patch.id, "review_digest": patch.review_digest, "branch_name": branch},
+                               idempotency_key=f"patch-published-{patch.id}")
             await self.session.commit()
             return patch
         except ContributionError as error:
-            patch.publish_status = "FAILED"
+            patch.publish_status = "UNKNOWN" if error.code in {"GITHUB_UNAVAILABLE", "GITHUB_BAD_RESPONSE", "GITHUB_REQUEST_FAILED", "GITHUB_RATE_LIMIT", "GIT_TIMEOUT"} else "FAILED"
             patch.publish_error = error.code
+            event_type = "patch.publication_uncertain" if patch.publish_status == "UNKNOWN" else "patch.publication_failed"
+            await record_event(self.session, self.organization_id, patch.execution_job_id, event_type, "worker", "patch.publisher",
+                               data={"patch_id": patch.id, "reason_code": error.code})
             await self.session.commit()
             logger.warning("contribution_failed", patch_id=str(patch.id), code=error.code)
             return patch
@@ -345,8 +435,10 @@ class PatchPublisher:
             await self.session.rollback()
             patch = await self.session.get(PatchModel, patch_id)
             if patch and patch.organization_id == self.organization_id and patch.publish_status != "SUCCEEDED":
-                patch.publish_status = "FAILED"
+                patch.publish_status = "UNKNOWN"
                 patch.publish_error = "PUBLISH_UNEXPECTED_ERROR"
+                await record_event(self.session, self.organization_id, patch.execution_job_id, "patch.publication_uncertain", "worker", "patch.publisher",
+                                   data={"patch_id": patch.id, "reason_code": "PUBLISH_UNEXPECTED_ERROR"})
                 await self.session.commit()
             logger.error("contribution_unexpected_failure", patch_id=str(patch_id), error_type=type(error).__name__)
             return patch

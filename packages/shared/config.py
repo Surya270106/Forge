@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -58,10 +58,28 @@ class ForgeSettings(BaseSettings):
     import_timeout_seconds: int = 300
     execution_timeout_seconds: int = 600
     worker_concurrency: int = 4
+    capsule_artifact_max_bytes: int = Field(default=16384, ge=1, le=16384)
+    capsule_artifact_max_count: int = Field(default=2, ge=0, le=2)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    rate_limit_auth: int = Field(default=30, ge=1)
+    rate_limit_model: int = Field(default=10, ge=1)
+    rate_limit_repository: int = Field(default=20, ge=1)
+    rate_limit_execution: int = Field(default=20, ge=1)
+    rate_limit_patch: int = Field(default=20, ge=1)
+    trusted_proxy_cidrs: list[str] = []
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     from pydantic import model_validator
+
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def validate_trusted_proxies(cls, values: list[str]) -> list[str]:
+        from ipaddress import ip_network
+
+        for value in values:
+            ip_network(value)
+        return values
 
     @model_validator(mode='after')
     def check_production_secret(self) -> "ForgeSettings":

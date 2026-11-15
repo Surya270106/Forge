@@ -1,0 +1,17 @@
+{
+  "id": "issue-to-pr-invariants-v1",
+  "version": 1,
+  "description": "Deterministic workflow invariants. These are not coding-agent scores or live GitHub tests.",
+  "cases": [
+    {"id": "simple-issue-bug-fix", "test": "tests/integration/test_worker_e2e.py::test_worker_runs_selected_pytest_and_records_capsule[single-file]", "evidence": "local PostgreSQL, Redis, Docker worker, verification, capsule; mocked GitHub write"},
+    {"id": "small-multi-file-change", "test": "tests/integration/test_worker_e2e.py::test_worker_runs_selected_pytest_and_records_capsule[multi-file]", "evidence": "local PostgreSQL, Redis, Docker worker, two edited files, verification"},
+    {"id": "missing-atlas-snapshot", "test": "tests/integration/test_issue_to_pr_local.py::test_capture_is_durable_idempotent_and_tenant_scoped", "evidence": "local PostgreSQL planning with a deterministic model fixture and no Atlas snapshot"},
+    {"id": "verification-failure", "test": "tests/test_rfc005_verification.py::test_run_verification_failure_triggers_repair", "evidence": "deterministic failing sandbox response; verified failure and repair request"},
+    {"id": "repair-changes-digest", "test": "tests/unit/test_patch_contribution.py::test_repair_patch_includes_original_and_repair_mutations_in_order", "also": ["tests/unit/test_patch_approval.py::test_approval_rejects_repaired_digest_without_side_effects", "tests/unit/test_patch_contribution.py::test_repair_publication_keeps_source_issue_link"], "evidence": "repair mutations change the digest, stale approval is denied, issue lineage survives repair"},
+    {"id": "sensitive-file-denied", "test": "tests/integration/test_safety_worker_docker.py::test_safety_gate_blocks_real_worker_before_side_effect[sensitive-file]", "also": ["tests/integration/test_safety_persistence.py::test_versioned_policy_revocation_history_and_rls"], "evidence": "real Docker worker denies .env edit without mutation and records a denial; policy is tenant scoped"},
+    {"id": "unauthorized-publication", "test": "tests/unit/test_patch_contribution.py::test_publication_requires_the_actual_reviewer", "also": ["tests/unit/test_patch_contribution.py::test_publication_denies_other_tenant_before_side_effects"], "evidence": "non-reviewer and other-tenant attempts cannot publish"},
+    {"id": "duplicate-publication", "test": "tests/unit/test_patch_contribution.py::test_duplicate_publication_request_stays_queued_without_new_outbox_event", "evidence": "duplicate request makes no new outbox event"},
+    {"id": "worker-interruption-recovery", "test": "tests/integration/test_execution_leases.py::test_killed_lease_owner_is_recovered_with_new_generation[after_claim]", "evidence": "local PostgreSQL process kill, lease expiry, fenced generation recovery"},
+    {"id": "ambiguous-github-reconciliation", "test": "tests/unit/test_patch_contribution.py::test_publisher_creates_real_commit_and_records_mocked_pull_request", "evidence": "disposable Git repository, mocked lost GitHub responses, remote reconciliation, one push and PR"}
+  ]
+}

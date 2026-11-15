@@ -21,6 +21,10 @@ class Action(str, Enum):
     EXEC_READ = "exec:read"
     EXEC_CANCEL = "exec:cancel"
 
+    BENCH_READ = "bench:read"
+    BENCH_CREATE = "bench:create"
+    BENCH_CANCEL = "bench:cancel"
+
     # Workspace
     WORKSPACE_SETTINGS_READ = "workspace:settings:read"
     WORKSPACE_SETTINGS_WRITE = "workspace:settings:write"
@@ -47,6 +51,9 @@ ROLE_PERMISSIONS: dict[str, set[Action]] = {
         Action.PATCH_REJECT,
         Action.EXEC_READ,
         Action.EXEC_CANCEL,
+        Action.BENCH_READ,
+        Action.BENCH_CREATE,
+        Action.BENCH_CANCEL,
         Action.WORKSPACE_SETTINGS_READ,
         Action.WORKSPACE_SETTINGS_WRITE,
     },
@@ -56,12 +63,14 @@ ROLE_PERMISSIONS: dict[str, set[Action]] = {
         Action.PLAN_READ,
         Action.PATCH_READ,
         Action.EXEC_READ,
+        Action.BENCH_READ,
     },
     Role.VIEWER: {
         Action.REPO_READ,
         Action.PLAN_READ,
         Action.PATCH_READ,
         Action.EXEC_READ,
+        Action.BENCH_READ,
     },
 }
 

@@ -54,7 +54,8 @@ class OutboxRelay:
         set_system_context()
         async with self.session_maker() as session:
             # Find unpublished events
-            stmt = select(OutboxEventModel).where(OutboxEventModel.published.is_(False)).order_by(OutboxEventModel.occurred_at).limit(self.batch_size)
+            stmt = (select(OutboxEventModel).where(OutboxEventModel.published.is_(False))
+                    .order_by(OutboxEventModel.occurred_at).limit(self.batch_size).with_for_update(skip_locked=True))
 
             result = await session.execute(stmt)
             events = result.scalars().all()

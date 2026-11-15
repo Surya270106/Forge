@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
+from unittest.mock import patch as mock_patch
 from uuid import uuid4
 
 import pytest
 
 from packages.database.models.patch import PatchStatus
+from packages.shared.errors import ConflictError
 from services.patch.service import PatchService
 
 if TYPE_CHECKING:
@@ -23,13 +25,33 @@ async def test_accept_patch_only_records_approval():
         pull_request_url=None,
         branch_name=None,
         id=uuid4(),
+        execution_job_id=uuid4(),
+        review_digest="a" * 64,
     )
     session = SimpleNamespace(get=AsyncMock(return_value=patch), commit=AsyncMock())
     service = PatchService(cast("AsyncSession", session), organization_id)
     service.review_patch = AsyncMock(return_value={"review_digest": "a" * 64})
-    result = await service.accept_patch(patch.id, "a" * 64, uuid4())
+    with mock_patch("services.patch.service.record_event", new=AsyncMock()) as event:
+        result = await service.accept_patch(patch.id, "a" * 64, uuid4())
 
     assert result.status == PatchStatus.ACCEPTED
     assert result.pull_request_url is None
     assert result.branch_name is None
     session.commit.assert_awaited_once()
+    event.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_approval_rejects_repaired_digest_without_side_effects():
+    organization_id = uuid4()
+    patch = SimpleNamespace(id=uuid4(), organization_id=organization_id,
+                            status=PatchStatus.GENERATED, review_digest="b" * 64)
+    session = SimpleNamespace(get=AsyncMock(return_value=patch), commit=AsyncMock())
+    service = PatchService(cast("AsyncSession", session), organization_id)
+    service.review_patch = AsyncMock(return_value={"review_digest": "b" * 64})
+    with (mock_patch("services.patch.service.record_event", new=AsyncMock()) as event,
+          pytest.raises(ConflictError)):
+        await service.accept_patch(patch.id, "a" * 64, uuid4())
+    assert patch.status == PatchStatus.GENERATED
+    session.commit.assert_not_awaited()
+    event.assert_not_awaited()

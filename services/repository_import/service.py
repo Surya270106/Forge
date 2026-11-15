@@ -33,6 +33,11 @@ class RepositoryService:
     ) -> tuple[RepositoryModel, ImportJobModel]:
         # Check if repository already exists for this org
         repo = await self.get_repository_by_name(organization_id, req.owner, req.name)
+        if repo is None and req.github_repository_id is not None:
+            repo = (await self.session.execute(select(RepositoryModel).where(
+                RepositoryModel.organization_id == organization_id,
+                RepositoryModel.github_repository_id == req.github_repository_id,
+            ))).scalar_one_or_none()
 
         if not repo:
             # Create new repository
@@ -42,6 +47,7 @@ class RepositoryService:
                 owner=req.owner,
                 name=req.name,
                 full_name=f"{req.owner}/{req.name}",
+                github_repository_id=req.github_repository_id,
                 clone_url=req.clone_url,
                 default_branch=req.branch,
                 is_private=req.is_private,
@@ -50,6 +56,8 @@ class RepositoryService:
             self.session.add(repo)
             await self.session.flush()
         else:
+            if repo.github_repository_id is not None and req.github_repository_id != repo.github_repository_id:
+                raise ConflictError("REPOSITORY_IDENTITY_CHANGED", "GitHub repository identity changed; select it again", ErrorCategory.CONFLICT)
             if repo.status in [RepositoryStatus.IMPORTING]:
                 raise ConflictError(
                     code="REPO_IMPORT_IN_PROGRESS",
@@ -58,9 +66,13 @@ class RepositoryService:
                 )
 
             repo.status = RepositoryStatus.PENDING
+            repo.owner = req.owner
+            repo.name = req.name
+            repo.full_name = f"{req.owner}/{req.name}"
             repo.clone_url = req.clone_url
             repo.default_branch = req.branch
             repo.is_private = req.is_private
+            repo.github_repository_id = req.github_repository_id
 
         # Create import job
         job = ImportJobModel(

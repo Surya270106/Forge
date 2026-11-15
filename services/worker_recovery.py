@@ -3,10 +3,10 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.database.models.execution import ExecutionJobModel, ExecutionStatus
+from packages.database.models.execution import ExecutionJobModel, ExecutionStatus, MutationModel
 from packages.database.models.import_job import ImportJobModel, ImportJobStatus
 from packages.database.models.planning import PlanModel, PlanStatus
 from packages.database.models.repository import RepositoryModel, RepositoryStatus
@@ -16,6 +16,8 @@ from packages.database.models.verification import (
     VerificationJobModel,
     VerificationStatus,
 )
+from services.execution.events import ExecutionEventPublisher, create_execution_requested_event
+from services.execution.flight_recorder import record_event
 
 
 async def fail_stale_jobs(session: AsyncSession, organization_id: UUID, *, execution_timeout_seconds: int = 600) -> dict[str, int]:
@@ -30,7 +32,10 @@ async def fail_stale_jobs(session: AsyncSession, organization_id: UUID, *, execu
                 .where(
                     ExecutionJobModel.status == ExecutionStatus.RUNNING,
                     ExecutionJobModel.organization_id == organization_id,
-                    ExecutionJobModel.started_at < cutoff,
+                    or_(
+                        ExecutionJobModel.lease_expires_at < now,
+                        and_(ExecutionJobModel.lease_expires_at.is_(None), ExecutionJobModel.started_at < cutoff),
+                    ),
                 )
                 .with_for_update(skip_locked=True)
             )
@@ -39,9 +44,37 @@ async def fail_stale_jobs(session: AsyncSession, organization_id: UUID, *, execu
         .all()
     )
     for job in executions:
+        expired_owner = getattr(job, "lease_owner", None)
+        if not getattr(job, "cancellation_requested_at", None) and getattr(job, "lease_owner", None) and getattr(job, "lease_generation", 0) < 3:
+            await session.execute(
+                update(MutationModel).where(
+                    MutationModel.execution_job_id == job.id,
+                    MutationModel.organization_id == organization_id,
+                ).values(is_reverted=True)
+            )
+            job.status = ExecutionStatus.PENDING
+            job.lease_owner = None
+            job.lease_expires_at = None
+            await record_event(session, organization_id, job.id, "worker.lease_expired", "system", "worker.recovery",
+                               actor_id=expired_owner, data={"generation": job.lease_generation}, idempotency_key=f"lease-expired-{job.lease_generation}")
+            await record_event(session, organization_id, job.id, "execution.recovered", "system", "worker.recovery",
+                               data={"generation": job.lease_generation}, idempotency_key=f"recovered-{job.lease_generation}")
+            await ExecutionEventPublisher(session).publish(
+                create_execution_requested_event(organization_id, job.repository_id, job.id, job.plan_id)
+            )
+            counts["execution"] += 1
+            continue
         job.status = ExecutionStatus.FAILED
         job.finished_at = now
-        job.error_message = "Worker interrupted or execution timed out; inspect the workspace before retrying"
+        job.error_message = ("Cancellation was interrupted; inspect the sandbox before retrying"
+                             if getattr(job, "cancellation_requested_at", None) else
+                             "Worker interrupted or execution timed out; inspect the workspace before retrying")
+        await record_event(session, organization_id, job.id, "worker.lease_expired", "system", "worker.recovery",
+                           actor_id=expired_owner, data={"generation": job.lease_generation}, idempotency_key=f"lease-expired-{job.lease_generation}")
+        await record_event(session, organization_id, job.id,
+                           "execution.cancellation_failed" if getattr(job, "cancellation_requested_at", None) else "execution.failed",
+                           "system", "worker.recovery", data={"reason_code": "LEASE_EXPIRED"},
+                           idempotency_key=f"lease-failed-{job.lease_generation}")
         plan = await session.get(PlanModel, job.plan_id)
         if plan and plan.organization_id == job.organization_id and plan.status == PlanStatus.EXECUTING:
             plan.status = PlanStatus.FAILED

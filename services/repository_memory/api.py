@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 async def start_indexing(
     repository_id: UUID,
     request: IndexRepositoryRequest,
-    organization_id: OrganizationId = Depends(require_permission("repo:import")),
+    organization_id: OrganizationId = Depends(require_permission("repo:import", rate_category="repository")),
     session: AsyncSession = Depends(get_session),
 ):
     service = MemoryService(session, organization_id)

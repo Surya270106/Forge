@@ -5,17 +5,17 @@ from uuid import UUID
 
 import redis.asyncio as redis
 import structlog
+from sqlalchemy import select
 
 from packages.database.engine import get_engine, get_session_factory
 from packages.database.models.execution import ExecutionJobModel
 from packages.database.models.planning import TaskNodeModel
 from packages.database.models.repository import RepositoryModel
-from sqlalchemy import select
 from packages.events.worker import EventWorker
 from packages.shared.config import get_settings
+from services.execution.runtime import select_execution_image
 from services.execution.sandbox import DockerSandbox
 from services.execution.worker import ExecutionWorker
-from services.execution.runtime import select_execution_image
 from services.repository_import.worker import ImportWorker
 
 logger = structlog.get_logger(__name__)
@@ -35,7 +35,7 @@ async def run_worker():
         session_maker=session_maker,
         consumer_group="forge_worker_group",
         consumer_name=os.getenv("HOSTNAME", "worker-1"),
-        streams=["forge:events:execution", "forge:events:repository", "forge:events:verification", "forge:events:repair", "forge:events:patch"],
+        streams=["forge:events:execution", "forge:events:repository", "forge:events:verification", "forge:events:repair", "forge:events:patch", "forge:events:bench"],
     )
 
     async def handle_import(event_data: dict, session):
@@ -59,7 +59,6 @@ async def run_worker():
             job = await session.get(ExecutionJobModel, job_id)
             if not job or str(job.organization_id) != event_data.get("organization_id"):
                 raise ValueError("Execution job not found for event organization")
-            workspace = os.path.join(settings.workspace_root, str(job.organization_id), str(job.repository_id))
             repo = await session.get(RepositoryModel, job.repository_id)
             if not repo or repo.organization_id != job.organization_id:
                 raise ValueError("Repository unavailable for execution")
@@ -75,9 +74,18 @@ async def run_worker():
                 [params.get("command", "") for params in commands],
                 settings.sandbox_images,
             )
-            sandbox = DockerSandbox(workspace_root=workspace, image=image)
+            sandbox = DockerSandbox(workspace_root=settings.workspace_root, image=image)
+            from services.execution.flight_recorder import record_event
+
+            async def sandbox_event(event_type: str, data: dict) -> None:
+                async with session_maker() as evidence_session:
+                    await record_event(evidence_session, job.organization_id, job.id, event_type, "sandbox", "execution.sandbox",
+                                       data=data, idempotency_key=f"sandbox-{sandbox.sandbox_id}-{event_type}")
+                    await evidence_session.commit()
+
+            sandbox.event_sink = sandbox_event
             try:
-                worker = ExecutionWorker(session, sandbox)
+                worker = ExecutionWorker(session, sandbox, session_maker=session_maker)
                 await worker.execute_job(job_id)
             finally:
                 await sandbox.cleanup()
@@ -107,13 +115,44 @@ async def run_worker():
             job_id = UUID(job_id_str)
             org_id = UUID(org_id_str)
             logger.info("Starting verification job", job_id=str(job_id))
-            dispatcher = VerificationDispatcher(session, org_id, settings)
+            dispatcher = VerificationDispatcher(session, org_id, settings, session_maker=session_maker)
             await dispatcher.run_verification(job_id)
 
     # Register handlers for available events
     event_worker.register_handler("repository.import_started", handle_import)
     event_worker.register_handler("repository.memory.indexing_requested", handle_indexing)
+
+    async def handle_atlas_index(event_data: dict, session):
+        import json
+        from pathlib import Path
+
+        from packages.database.models.atlas import AtlasJobModel
+        from services.atlas.service import run_job
+
+        payload = event_data.get("payload", {})
+        payload = json.loads(payload) if isinstance(payload, str) else payload
+        job_id = UUID(payload["job_id"])
+        job = await session.get(AtlasJobModel, job_id)
+        if not job or str(job.organization_id) != event_data.get("organization_id") or str(job.repository_id) != event_data.get("aggregate_id"):
+            raise ValueError("Atlas job is unavailable for event organization")
+        await run_job(session_maker, job_id, Path(settings.workspace_root))
+
+    event_worker.register_handler("repository.atlas.index_requested", handle_atlas_index)
     event_worker.register_handler("execution.requested", handle_execution)
+
+    async def handle_bench_requested(event_data: dict, session):
+        from services.bench.worker import start_next_trial
+
+        await start_next_trial(session, UUID(event_data["organization_id"]), UUID(event_data["aggregate_id"]), settings)
+
+    async def handle_bench_execution_finished(event_data: dict, session):
+        from services.bench.worker import finish_trial
+
+        await finish_trial(session, UUID(event_data["organization_id"]), UUID(event_data["aggregate_id"]), settings)
+
+    event_worker.register_handler("bench.run_requested", handle_bench_requested)
+    for terminal_event in ("execution.completed", "execution.failed", "execution.cancelled"):
+        event_worker.register_handler(terminal_event, handle_bench_execution_finished)
     event_worker.register_handler("verification.requested", handle_verification)
 
     from services.verification.repair_worker import handle_repair_attempted
@@ -146,6 +185,7 @@ async def run_worker():
         from packages.database.models.auth import OrganizationModel
         from packages.database.tenant import set_system_context, set_tenant
         from services.worker_recovery import fail_stale_jobs
+        from services.atlas.service import recover_stale_jobs
 
         while True:
             try:
@@ -161,6 +201,10 @@ async def run_worker():
                         )
                         if any(counts.values()):
                             logger.warning("stale_jobs_failed", organization_id=str(organization_id), **counts)
+                        atlas_recovered = await recover_stale_jobs(recovery_session, organization_id)
+                        await recovery_session.commit()
+                        if atlas_recovered:
+                            logger.warning("atlas_jobs_recovered", organization_id=str(organization_id), count=atlas_recovered)
             except asyncio.CancelledError:
                 raise
             except Exception as error:

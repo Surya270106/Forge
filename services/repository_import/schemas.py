@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class ImportRepositoryRequest(BaseModel):
+    github_repository_id: int | None = Field(default=None, gt=0)
     clone_url: str = Field(..., description="Git clone URL of the repository")
     owner: str = Field(..., description="Repository owner/organization")
     name: str = Field(..., description="Repository name")

@@ -2,15 +2,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from services.audit.api import router as audit_router
+from services.atlas.api import router as atlas_router
 from services.auth.api import router as auth_router
+from services.bench.api import router as bench_router
 from services.context_engine.api import router as context_router
+from services.context_lens.api import router as context_lens_router
+from services.issue_to_pr.api import router as issue_to_pr_router
 from services.execution.api import router as execution_router
+from services.execution.run_capsules_api import router as run_capsules_router
+from services.organizations.api import router as organizations_router
 from services.patch.api import router as patch_router
 from services.planning.api import router as planning_router
 from services.repository_import.api import router as repo_router
 from services.repository_memory.api import router as memory_router
+from services.safety.api import router as safety_router
 from services.verification.api import router as verification_router
-from services.organizations.api import router as organizations_router
+from services.verification.intelligence_api import router as verification_intelligence_router
 
 app = FastAPI(
     title="Forge AI API",
@@ -49,13 +56,20 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(repo_router)
+app.include_router(issue_to_pr_router)
 app.include_router(memory_router)
 app.include_router(planning_router)
 app.include_router(execution_router)
+app.include_router(run_capsules_router)
 app.include_router(verification_router)
+app.include_router(verification_intelligence_router)
 app.include_router(context_router)
+app.include_router(context_lens_router)
 app.include_router(patch_router)
 app.include_router(audit_router)
+app.include_router(bench_router)
+app.include_router(safety_router)
+app.include_router(atlas_router)
 app.include_router(organizations_router)
 
 from services.github.webhooks import router as github_router
@@ -70,18 +84,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    import psutil
-    from packages.shared.config import get_settings
-    settings = get_settings()
-    return {
-        "status": "ok", 
-        "version": app.version,
-        "environment": settings.environment,
-        "system": {
-            "cpu_percent": psutil.cpu_percent(),
-            "memory_percent": psutil.virtual_memory().percent
-        }
-    }
+    return {"status": "ok", "version": app.version}
 
 
 @app.get("/ready")

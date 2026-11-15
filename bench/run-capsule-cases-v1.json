@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "Synthetic capsule evidence cases; not scored coding-agent evaluations or real model runs.",
+  "cases": [
+    {"id": "running-attempt", "event": "execution.started", "expected_state": "PARTIAL"},
+    {"id": "lease-expired", "event": "worker.lease_expired", "expected_state": "PARTIAL"},
+    {"id": "execution-awaits-verification", "event": "execution.completed", "expected_state": "PARTIAL"},
+    {"id": "failed-execution", "event": "execution.failed", "expected_state": "FINAL"},
+    {"id": "cancelled-execution", "event": "execution.cancelled", "expected_state": "FINAL"},
+    {"id": "verification-finalized", "event": "verification.completed", "expected_state": "FINAL"},
+    {"id": "verification-cancelled", "event": "verification.cancelled", "expected_state": "FINAL"}
+  ]
+}

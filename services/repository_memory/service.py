@@ -57,7 +57,7 @@ class MemoryService:
         self.organization_id = organization_id
         self.publisher = OutboxEventPublisher(session)
 
-    async def start_indexing(self, repository_id: UUID, branch: str | None = None, force_reindex: bool = False) -> IndexingJobModel:
+    async def start_indexing(self, repository_id: UUID, branch: str | None = None, force_reindex: bool = False, *, commit: bool = True) -> IndexingJobModel:
         repo = await self.session.get(RepositoryModel, repository_id)
         if not repo or repo.organization_id != self.organization_id:
             raise NotFoundError(code="repo_not_found", message="Repository not found", category=ErrorCategory.NOT_FOUND)
@@ -95,7 +95,8 @@ class MemoryService:
         self.session.add(job)
 
         await self.publisher.publish(create_indexing_requested_event(self.organization_id, repository_id, job.id))
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
         return job
 
     async def get_job_status(self, job_id: UUID) -> IndexingJobModel:
